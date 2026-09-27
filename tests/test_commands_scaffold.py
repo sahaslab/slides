@@ -4,10 +4,18 @@ from slides.keynote import scaffold
 from slides.commands import scaffold as scaffold_command
 
 
-def test_passes_the_spec_and_template_straight_through(tmp_path, monkeypatch, capsys):
+def test_passes_the_spec_and_template_straight_through(
+    tmp_path,
+    monkeypatch,
+    capsys
+):
     captured = {}
 
-    def fake_build(spec, template=None, output=None):
+    def fake_build(
+        spec,
+        template=None,
+        output=None
+    ):
         captured["spec"] = spec
         captured["template"] = template
         captured["output"] = output
@@ -25,10 +33,17 @@ def test_passes_the_spec_and_template_straight_through(tmp_path, monkeypatch, ca
     assert "Created 2 slides" in capsys.readouterr().err
 
 
-def test_output_defaults_to_the_spec_path_with_a_key_suffix(tmp_path, monkeypatch):
+def test_output_defaults_to_the_spec_path_with_a_key_suffix(
+    tmp_path,
+    monkeypatch
+):
     captured = {}
 
-    def fake_build(spec, template=None, output=None):
+    def fake_build(
+        spec,
+        template=None,
+        output=None
+    ):
         captured["output"] = output
         return {"created": 1, "firstIndex": 1}
 
@@ -41,10 +56,17 @@ def test_output_defaults_to_the_spec_path_with_a_key_suffix(tmp_path, monkeypatc
     assert captured["output"] == str(tmp_path / "deck.key")
 
 
-def test_output_flag_overrides_the_default(tmp_path, monkeypatch):
+def test_output_flag_overrides_the_default(
+    tmp_path,
+    monkeypatch
+):
     captured = {}
 
-    def fake_build(spec, template=None, output=None):
+    def fake_build(
+        spec,
+        template=None,
+        output=None
+    ):
         captured["output"] = output
         return {"created": 1, "firstIndex": 1}
 
@@ -61,10 +83,17 @@ def test_output_flag_overrides_the_default(tmp_path, monkeypatch):
     assert captured["output"] == "/tmp/custom.key"
 
 
-def test_output_is_ignored_without_a_template(tmp_path, monkeypatch):
+def test_output_is_ignored_without_a_template(
+    tmp_path,
+    monkeypatch
+):
     captured = {}
 
-    def fake_build(spec, template=None, output=None):
+    def fake_build(
+        spec,
+        template=None,
+        output=None
+    ):
         captured["output"] = output
         return {"created": 1, "firstIndex": 1}
 

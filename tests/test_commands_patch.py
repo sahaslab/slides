@@ -4,7 +4,11 @@ from slides.keynote import patch
 from slides.commands import patch as patch_command
 
 
-def test_passes_a_spec_straight_through(tmp_path, monkeypatch, capsys):
+def test_passes_a_spec_straight_through(
+    tmp_path,
+    monkeypatch,
+    capsys
+):
     captured = {}
 
     def fake_apply(spec: dict) -> dict:
@@ -20,7 +24,11 @@ def test_passes_a_spec_straight_through(tmp_path, monkeypatch, capsys):
     assert "Dump input" not in capsys.readouterr().err
 
 
-def test_converts_a_dump_document_and_warns(tmp_path, monkeypatch, capsys):
+def test_converts_a_dump_document_and_warns(
+    tmp_path,
+    monkeypatch,
+    capsys
+):
     document = {
         "title": "Talk",
         "slides": [{"number": 1, "title": "T", "notes": "n", "body": ["ignored"]}],

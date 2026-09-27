@@ -20,7 +20,10 @@ def read(path: str | pathlib.Path) -> Deck:
     return deck
 
 
-def _slide(number: int, raw: "pptx.slide.Slide") -> Slide:
+def _slide(
+    number: int,
+    raw: "pptx.slide.Slide"
+) -> Slide:
     from pptx.enum.shapes import MSO_SHAPE_TYPE
     slide = Slide(number=number)
     title_shape = raw.shapes.title

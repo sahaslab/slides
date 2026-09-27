@@ -15,7 +15,10 @@ def detect(target: str | pathlib.Path | None) -> str:
     raise ValueError("%s is not a deck" % (path,))
 
 
-def read(target: str | pathlib.Path | None, via_deckwerk: bool = False) -> Deck:
+def read(
+    target: str | pathlib.Path | None,
+    via_deckwerk: bool = False
+) -> Deck:
     kind = detect(target)
     if kind == "live":
         from slides.readers import keynote_live

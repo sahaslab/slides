@@ -89,7 +89,10 @@ def test_front_document_path_guards_against_no_open_presentation():
     assert guarded_at < assigned_at
 
 
-def test_template_is_copied_and_the_copy_is_opened_not_the_template(tmp_path, monkeypatch):
+def test_template_is_copied_and_the_copy_is_opened_not_the_template(
+    tmp_path,
+    monkeypatch
+):
     template = tmp_path / "template.key"
     template.write_bytes(b"TEMPLATE-BYTES")
     output = tmp_path / "out.key"
@@ -117,7 +120,10 @@ def test_template_is_copied_and_the_copy_is_opened_not_the_template(tmp_path, mo
     assert str(template) not in captured["script"]
 
 
-def test_template_as_a_directory_bundle_is_copied_with_copytree(tmp_path, monkeypatch):
+def test_template_as_a_directory_bundle_is_copied_with_copytree(
+    tmp_path,
+    monkeypatch
+):
     template = tmp_path / "template.key"
     template.mkdir()
     (template / "Index").mkdir()
@@ -147,7 +153,10 @@ def test_template_as_a_directory_bundle_is_copied_with_copytree(tmp_path, monkey
     assert str(output) in captured["script"]
 
 
-def test_refuses_to_overwrite_an_existing_output(tmp_path, monkeypatch):
+def test_refuses_to_overwrite_an_existing_output(
+    tmp_path,
+    monkeypatch
+):
     template = tmp_path / "template.key"
     template.write_text("t")
     output = tmp_path / "out.key"
@@ -167,7 +176,10 @@ def test_refuses_to_overwrite_an_existing_output(tmp_path, monkeypatch):
     assert output.read_text() == "existing"
 
 
-def test_without_template_uses_the_front_document_and_ignores_output(monkeypatch, tmp_path):
+def test_without_template_uses_the_front_document_and_ignores_output(
+    monkeypatch,
+    tmp_path
+):
     captured = {}
     monkeypatch.setattr(
         jxa,

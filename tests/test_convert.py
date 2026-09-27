@@ -14,7 +14,11 @@ def an_args(**kw) -> argparse.Namespace:
     return argparse.Namespace(**base)
 
 
-def test_refuses_a_populated_default_output(tmp_path, monkeypatch, capsys):
+def test_refuses_a_populated_default_output(
+    tmp_path,
+    monkeypatch,
+    capsys
+):
     # Mirrors a real course folder: 04_sep28_conditional_linear.key sits next
     # to a hand-edited 04_sep28_conditional_linear/ deck.json.
     source = tmp_path / "04_sep28_conditional_linear.key"
@@ -36,7 +40,10 @@ def test_refuses_a_populated_default_output(tmp_path, monkeypatch, capsys):
     assert "already exists" in capsys.readouterr().err
 
 
-def test_refuses_a_populated_explicit_output(tmp_path, monkeypatch):
+def test_refuses_a_populated_explicit_output(
+    tmp_path,
+    monkeypatch
+):
     source = tmp_path / "deck.key"
     source.touch()
     out = tmp_path / "somewhere_else"
@@ -52,7 +59,10 @@ def test_refuses_a_populated_explicit_output(tmp_path, monkeypatch):
     assert called == []
 
 
-def test_allows_an_existing_empty_directory(tmp_path, monkeypatch):
+def test_allows_an_existing_empty_directory(
+    tmp_path,
+    monkeypatch
+):
     source = tmp_path / "deck.key"
     source.touch()
     out = tmp_path / "deck"
@@ -64,7 +74,10 @@ def test_allows_an_existing_empty_directory(tmp_path, monkeypatch):
     assert convert.run(an_args(target=str(source))) == 0
 
 
-def test_allows_a_brand_new_default_output(tmp_path, monkeypatch):
+def test_allows_a_brand_new_default_output(
+    tmp_path,
+    monkeypatch
+):
     source = tmp_path / "deck.key"
     source.touch()
     monkeypatch.setattr(

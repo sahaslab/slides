@@ -70,7 +70,11 @@ def summarise(deck: Deck) -> str:
     return "\n".join(lines)
 
 
-def _plural(count: int, singular: str, plural: str | None = None) -> str:
+def _plural(
+    count: int,
+    singular: str,
+    plural: str | None = None
+) -> str:
     if count == 1:
         return "1 %s" % (singular,)
     return "%d %s" % (count, plural or (singular + "s"))

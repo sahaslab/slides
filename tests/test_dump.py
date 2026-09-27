@@ -67,7 +67,10 @@ def test_video_is_linked_but_not_copied_by_default(tmp_path):
     assert "clip.mp4" in out.read_text()
 
 
-def test_stdout_copies_nothing_and_warns(tmp_path, capsys):
+def test_stdout_copies_nothing_and_warns(
+    tmp_path,
+    capsys
+):
     assert dump.run(an_args()) == 0
     captured = capsys.readouterr()
     assert "demo.html" in captured.out

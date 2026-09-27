@@ -56,7 +56,10 @@ def _tiny_png() -> bytes:
     )
 
 
-def _png_chunk(tag: bytes, data: bytes) -> bytes:
+def _png_chunk(
+    tag: bytes,
+    data: bytes
+) -> bytes:
     return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data))
 
 
