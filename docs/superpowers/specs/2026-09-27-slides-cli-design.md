@@ -218,7 +218,8 @@ with its hue held.
 
 **Emitters.** The extracted `DeckTheme` renders to:
 
-- **matplotlib** — an `rcParams` dict, and `deck_style()` as a context manager.
+- **matplotlib** — an `rcParams` dict and `deck_style()` as a context manager in
+  the library; on the command line, a style sheet for `plt.style.use()`.
 - **ggplot2** — R source defining `theme_deck()` plus `scale_colour_deck()` and
   `scale_fill_deck()`, written tidyverse-style for sourcing from an analysis.
 - **JSON** — the roles, for anything else.
@@ -228,7 +229,8 @@ with its hue held.
 
 ```python
 from slides import read_deck
-from slides.theme import extract, deck_style
+from slides.theme import extract
+from slides.emit.matplotlib import deck_style
 
 theme = extract(read_deck("talk/"))
 theme.background, theme.foreground, theme.accents
