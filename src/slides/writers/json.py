@@ -1,5 +1,5 @@
 import json
-from slides.model import Deck
+from slides.model import Deck, Slide
 
 
 def render(
@@ -23,7 +23,7 @@ def to_dict(
 
 
 def _slide(
-    slide,
+    slide: Slide,
     notes_only: bool
 ) -> dict:
     if notes_only:
