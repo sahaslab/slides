@@ -57,6 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
     scaffold = sub.add_parser("scaffold")
     scaffold.add_argument("spec")
     scaffold.add_argument("--template", default=None)
+    scaffold.add_argument("-o", "--output", default=None)
 
     math = sub.add_parser("math")
     math.add_argument("target")
