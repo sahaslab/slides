@@ -36,6 +36,53 @@ def test_rc_params_needs_no_matplotlib(monkeypatch):
     assert mpl.rc_params(a_theme())["figure.facecolor"] == "#0d1e1c"
 
 
+def test_rc_params_splits_a_sans_serif_css_stack():
+    theme = a_theme()
+    theme.fonts = {
+        "body": "\"Avenir Next\", Avenir, \"Helvetica Neue\", Inter, system-ui, sans-serif",
+    }
+    params = mpl.rc_params(theme)
+    assert params["font.family"] == "sans-serif"
+    assert params["font.sans-serif"] == [
+        "Avenir Next", "Avenir", "Helvetica Neue", "Inter", "DejaVu Sans",
+    ]
+
+
+def test_rc_params_splits_a_serif_css_stack():
+    theme = a_theme()
+    theme.fonts = {
+        "body": "Charter, \"Iowan Old Style\", \"New York\", Palatino, Georgia, serif",
+    }
+    params = mpl.rc_params(theme)
+    assert params["font.family"] == "serif"
+    assert params["font.serif"] == [
+        "Charter", "Iowan Old Style", "New York", "Palatino", "Georgia", "DejaVu Serif",
+    ]
+
+
+def test_rc_params_splits_a_monospace_css_stack():
+    theme = a_theme()
+    theme.fonts = {"body": "\"Fira Code\", monospace"}
+    params = mpl.rc_params(theme)
+    assert params["font.family"] == "monospace"
+    assert params["font.monospace"] == ["Fira Code", "DejaVu Sans Mono"]
+
+
+def test_rc_params_dedupes_repeated_family_names():
+    theme = a_theme()
+    theme.fonts = {"body": "Helvetica, Helvetica, sans-serif"}
+    params = mpl.rc_params(theme)
+    assert params["font.sans-serif"] == ["Helvetica", "DejaVu Sans"]
+
+
+def test_rc_params_falls_back_once_with_no_fonts():
+    theme = a_theme()
+    theme.fonts = {}
+    params = mpl.rc_params(theme)
+    assert params["font.family"] == "sans-serif"
+    assert params["font.sans-serif"] == ["DejaVu Sans"]
+
+
 def test_ggplot_emits_sourceable_r():
     out = ggplot.render(a_theme())
     assert "theme_deck <- function(" in out
@@ -49,6 +96,24 @@ def test_ggplot_emits_sourceable_r():
 def test_ggplot_defines_the_palette_once():
     out = ggplot.render(a_theme())
     assert out.count("deck_palette <- ") == 1
+
+
+def test_ggplot_extracts_the_primary_family_from_a_css_stack():
+    theme = a_theme()
+    theme.fonts = {
+        "body": "\"Avenir Next\", Avenir, \"Helvetica Neue\", Inter, system-ui, sans-serif",
+    }
+    out = ggplot.render(theme)
+    assert "base_family = \"Avenir Next\"" in out
+    assert "system-ui" not in out
+    assert "Helvetica Neue" not in out
+
+
+def test_ggplot_falls_back_to_sans_with_no_fonts():
+    theme = a_theme()
+    theme.fonts = {}
+    out = ggplot.render(theme)
+    assert "base_family = \"sans\"" in out
 
 
 def test_css_emits_custom_properties():
@@ -72,3 +137,25 @@ def test_deck_style_restores_previous_settings():
     with mpl.deck_style(a_theme()):
         assert matplotlib.rcParams["figure.facecolor"] == "#0d1e1c"
     assert matplotlib.rcParams["figure.facecolor"] == before
+
+
+def test_matplotlib_format_is_a_style_sheet_not_a_dict_literal():
+    out = render(a_theme(), "matplotlib")
+    assert out.startswith("# plt.style.use(\"deck.mplstyle\")")
+    assert "rc_params = {" not in out
+    assert "figure.facecolor: \"#0d1e1c\"" in out
+    assert "axes.prop_cycle: cycler(\"color\", [\"#a5d75f\", \"#5ce1e6\", \"#ff6b6b\"])" in out
+    assert "'" not in out
+
+
+def test_matplotlib_style_sheet_round_trips(tmp_path):
+    matplotlib = pytest.importorskip("matplotlib", reason="figures extra not installed")
+    import matplotlib.style
+    path = tmp_path / "deck.mplstyle"
+    path.write_text(render(a_theme(), "matplotlib"))
+    with matplotlib.style.context(str(path)):
+        assert matplotlib.rcParams["axes.facecolor"] == "#0d1e1c"
+        assert matplotlib.rcParams["text.color"] == "#edf4f1"
+        cycled = [entry["color"] for entry in matplotlib.rcParams["axes.prop_cycle"]]
+        assert cycled == ["#a5d75f", "#5ce1e6", "#ff6b6b"]
+        assert matplotlib.rcParams["font.sans-serif"][0] == "Libre Franklin"
