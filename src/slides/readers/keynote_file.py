@@ -10,7 +10,10 @@ WHITESPACE = re.compile(r"[    ]+")
 BLANK_LINES = re.compile(r"\n{2,}")
 
 
-def read(path: str | pathlib.Path, via_deckwerk: bool = False) -> Deck:
+def read(
+    path: str | pathlib.Path,
+    via_deckwerk: bool = False,
+) -> Deck:
     root = pathlib.Path(path)
     if via_deckwerk:
         from slides.deckwerk import importer
@@ -68,14 +71,22 @@ def _streams(root: pathlib.Path) -> Iterator[tuple[str, bytes]]:
                 yield name, package.read(name)
 
 
-def _first(index: dict[str, dict], pbtype: str) -> dict:
+def _first(
+    index: dict[str, dict],
+    pbtype: str,
+) -> dict:
     for obj in index.values():
         if obj.get("_pbtype") == pbtype:
             return obj
     raise ValueError("no %s in this deck" % (pbtype,))
 
 
-def _slide(number: int, raw: dict, index: dict, colors: dict) -> Slide:
+def _slide(
+    number: int,
+    raw: dict,
+    index: dict,
+    colors: dict,
+) -> Slide:
     slide = Slide(number=number)
     slide.background = _resolve_background(raw, index, colors)
     title_id = raw.get("titlePlaceholder", {}).get("identifier")
@@ -101,7 +112,10 @@ def _slide(number: int, raw: dict, index: dict, colors: dict) -> Slide:
     return slide
 
 
-def _text_of(drawable: dict | None, index: dict) -> str:
+def _text_of(
+    drawable: dict | None,
+    index: dict,
+) -> str:
     if drawable is None:
         return ""
     return _text_from_storage(_storage_of(drawable, index))
@@ -113,7 +127,10 @@ def _text_from_storage(storage: dict | None) -> str:
     return "".join(storage.get("text") or [])
 
 
-def _storage_of(drawable: dict, index: dict) -> dict | None:
+def _storage_of(
+    drawable: dict,
+    index: dict,
+) -> dict | None:
     for holder in (drawable, drawable.get("super") or {}):
         for key in STORAGE_KEYS:
             ref = holder.get(key)
@@ -122,14 +139,21 @@ def _storage_of(drawable: dict, index: dict) -> dict | None:
     return None
 
 
-def _resolve_background(raw: dict, index: dict, colors: dict) -> str | None:
+def _resolve_background(
+    raw: dict,
+    index: dict,
+    colors: dict,
+) -> str | None:
     style_id = raw.get("style", {}).get("identifier")
-    color = _resolve_color(style_id, index, "slideProperties", "fill")
-    if color is None:
-        # Slides that don't set their own fill inherit their master's.
+    found, color = _resolve_color(style_id, index, "slideProperties", "fill")
+    if not found:
+        # The slide's own style chain never mentions a fill at all -- only
+        # then does it fall back to inheriting its master's. A style chain
+        # that DOES mention a fill (even a non-solid one, found=True with
+        # color=None) must not fall back: that fill was deliberately set.
         template = index.get(raw.get("templateSlide", {}).get("identifier")) or {}
         template_style_id = template.get("style", {}).get("identifier")
-        color = _resolve_color(template_style_id, index, "slideProperties", "fill")
+        _, color = _resolve_color(template_style_id, index, "slideProperties", "fill")
     if color is None:
         return None
     hexvalue = _to_hex(color)
@@ -137,20 +161,28 @@ def _resolve_background(raw: dict, index: dict, colors: dict) -> str | None:
     return hexvalue
 
 
-def _harvest_fill(drawable: dict | None, index: dict, colors: dict) -> None:
+def _harvest_fill(
+    drawable: dict | None,
+    index: dict,
+    colors: dict,
+) -> None:
     if drawable is None:
         return
     style_id = _style_ref(drawable)
     if style_id is None:
         return
-    color = _resolve_color(style_id, index, "shapeProperties", "fill")
+    _, color = _resolve_color(style_id, index, "shapeProperties", "fill")
     if color is None:
         return
     hexvalue = _to_hex(color)
     colors[(hexvalue, "fill")] = colors.get((hexvalue, "fill"), 0.0) + 1.0
 
 
-def _harvest_text_colors(storage: dict, index: dict, colors: dict) -> None:
+def _harvest_text_colors(
+    storage: dict,
+    index: dict,
+    colors: dict,
+) -> None:
     text_length = sum(len(run) for run in (storage.get("text") or []))
     if text_length == 0:
         return
@@ -171,7 +203,7 @@ def _harvest_text_colors(storage: dict, index: dict, colors: dict) -> None:
         style_id = entry.get("object", {}).get("identifier")
         if style_id is None:
             continue
-        color = _resolve_color(style_id, index, "charProperties", "fontColor")
+        _, color = _resolve_color(style_id, index, "charProperties", "fontColor")
         if color is None:
             continue
         hexvalue = _to_hex(color)
@@ -204,7 +236,11 @@ def _style_parent(style: dict) -> str | None:
     return None
 
 
-def _color_at(node: dict, group: str, prop: str) -> tuple[bool, dict | None]:
+def _color_at(
+    node: dict,
+    group: str,
+    prop: str,
+) -> tuple[bool, dict | None]:
     props = node.get(group)
     if not isinstance(props, dict):
         return False, None
@@ -230,21 +266,21 @@ def _resolve_color(
     index: dict,
     group: str,
     prop: str,
-) -> dict | None:
+) -> tuple[bool, dict | None]:
     seen: set[str] = set()
     while style_id is not None and style_id not in seen:
         seen.add(style_id)
         style = index.get(style_id)
         if style is None:
-            return None
+            return False, None
         node = style
         while isinstance(node, dict):
             found, color = _color_at(node, group, prop)
             if found:
-                return color
+                return True, color
             node = node.get("super")
         style_id = _style_parent(style)
-    return None
+    return False, None
 
 
 def _to_hex(color: dict) -> str:
