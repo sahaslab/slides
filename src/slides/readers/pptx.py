@@ -21,6 +21,7 @@ def read(path: str | pathlib.Path) -> Deck:
 
 
 def _slide(number: int, raw: "pptx.slide.Slide") -> Slide:
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
     slide = Slide(number=number)
     title_shape = raw.shapes.title
     if title_shape is not None and title_shape.has_text_frame:
@@ -43,7 +44,7 @@ def _slide(number: int, raw: "pptx.slide.Slide") -> Slide:
                 [cell.text.strip() for cell in row.cells]
                 for row in shape.table.rows
             ]))
-        if shape.shape_type == 13:
+        if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
             slide.images.append(Image(
                 path=getattr(shape.image, "filename", None),
                 x=_points(shape.left),
