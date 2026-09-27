@@ -1,5 +1,7 @@
 import sys
+import json
 import argparse
+import collections.abc
 from slides import readers
 from slides.model import Deck
 
@@ -7,7 +9,32 @@ from slides.model import Deck
 def run(args: argparse.Namespace) -> int:
     deck = readers.read(args.target)
     sys.stdout.write(summarise(deck) + "\n")
+    kind = readers.detect(args.target)
+    if kind == "keynote":
+        _extra(lambda: _coverage(args))
+    elif kind == "deckwerk":
+        _extra(lambda: _validation(args))
     return 0
+
+
+def _extra(work: collections.abc.Callable[[], str]) -> None:
+    from slides.deckwerk.importer import DeckWerkError
+    try:
+        sys.stdout.write(work())
+    except DeckWerkError as problem:
+        sys.stderr.write("%s\n" % (problem,))
+
+
+def _coverage(args: argparse.Namespace) -> str:
+    from slides.deckwerk import importer
+    result = importer.report(args.target, root=args.deckwerk_root)
+    return "coverage: %s\n" % (json.dumps(result.get("report", {}), indent=2),)
+
+
+def _validation(args: argparse.Namespace) -> str:
+    from slides.deckwerk import agent
+    result = agent.validate(args.target, root=args.deckwerk_root)
+    return "validate: %s\n" % (json.dumps(result, indent=2),)
 
 
 def summarise(deck: Deck) -> str:
