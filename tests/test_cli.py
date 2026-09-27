@@ -18,6 +18,23 @@ def test_parser_has_every_subcommand():
     }
 
 
+def test_scaffold_accepts_a_template_and_an_output():
+    parser = build_parser()
+    args = parser.parse_args(
+        ["scaffold", "spec.json", "--template", "t.key", "-o", "out.key"]
+    )
+    assert args.spec == "spec.json"
+    assert args.template == "t.key"
+    assert args.output == "out.key"
+
+
+def test_scaffold_template_and_output_default_to_none():
+    parser = build_parser()
+    args = parser.parse_args(["scaffold", "spec.json"])
+    assert args.template is None
+    assert args.output is None
+
+
 def test_help_does_not_import_heavy_dependencies():
     code = (
         "import sys; from slides import cli; cli.build_parser(); "

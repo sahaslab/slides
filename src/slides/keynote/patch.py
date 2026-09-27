@@ -2,7 +2,7 @@ import json
 import tempfile
 from slides.keynote import jxa
 
-FIELDS = {"title", "body", "notes", "images", "tables"}
+FIELDS = {"title", "body", "notes", "images", "tables", "master"}
 
 SCRIPT = """
 ObjC.import("Foundation");
