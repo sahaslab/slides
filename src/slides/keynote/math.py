@@ -12,19 +12,13 @@ from collections.abc import Iterator
 DISPLAY = re.compile(r"\$\$(?!\s)((?:[^$\n]|\n(?!\n))+?)(?<!\s)\$\$")
 INLINE = re.compile(r"(?<!\$)\$(?!\s)((?:[^$\n]|\n(?!\n))+?)(?<!\s)\$(?!\$)")
 PLACEHOLDER = "\N{OBJECT REPLACEMENT CHARACTER}"
-FIRST_ID = 820000
-PARA_TABLES = (
-    "tableParaStyle",
-    "tableParaStarts",
-    "tableParaBidi",
-    "tableParaData",
-    "tableListStyle",
-    "tableDropCapStyle",
-)
-# The equation media style and the stylesheet component holding it, kept as
-# apply_headless_equations.py found them empirically.
-EQUATION_STYLE = "15056"
-STYLESHEET_COMPONENT = "7907"
+# Only used when the host paragraph's style chain does not set the property.
+FALLBACK_FONT = "LibreFranklin-Thin_Regular"
+FALLBACK_SIZE = 28.0
+BLACK = {"a": 1.0, "b": 0.0, "g": 0.0, "model": "rgb", "r": 0.0, "rgbspace": "srgb"}
+# libyaml when it is installed: several times faster on a large stylesheet.
+LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+DUMPER = getattr(yaml, "CSafeDumper", yaml.SafeDumper)
 
 
 def find_equations(text: str) -> list[tuple[int, int, str]]:
@@ -48,13 +42,25 @@ def convert(
     min_slide: int = 1
 ) -> int:
     with tempfile.TemporaryDirectory(prefix="slides-math-") as work:
-        unpack_deck(source, work)
-        count = process_presentation(pathlib.Path(work), min_slide)
-        repack_deck(work, out)
+        deck = pathlib.Path(work) / "deck"
+        unpack_deck(zipped(pathlib.Path(source), pathlib.Path(work)), deck)
+        count = process_presentation(deck, min_slide)
+        repack_deck(deck, out)
     return count
 
 
 # keynote-parser CLI
+
+def zipped(
+    source: pathlib.Path,
+    work: pathlib.Path
+) -> pathlib.Path:
+    # keynote-parser only reads zipped decks, but Keynote also saves bundles.
+    if not source.is_dir():
+        return source
+    archive = shutil.make_archive(str(work / "source"), "zip", root_dir=source)
+    return pathlib.Path(archive).rename(work / "source.key")
+
 
 def unpack_deck(
     key_path: str | pathlib.Path,
@@ -86,13 +92,25 @@ def process_presentation(
     min_slide: int = 1
 ) -> int:
     index_dir = unpack_dir / "Index"
+    meta_path = index_dir / "Metadata.iwa.yaml"
+    meta = load(meta_path)
+    package = meta["chunks"][0]["archives"][0]["objects"][0]
+    sheet_component = next(
+        comp
+        for comp in package["components"]
+        if comp.get("preferredLocator") == "DocumentStylesheet"
+    )
+    sheet_name = sheet_component.get("locator", sheet_component["preferredLocator"])
+    sheet_styles = archive_objects(load(index_dir / ("%s.iwa.yaml" % (sheet_name,))))
+    component, style = equation_style(sheet_component, sheet_styles)
+    # New archives take identifiers above every one the deck has handed out.
+    ids = (str(ident) for ident in itertools.count(int(package["lastObjectIdentifier"]) + 1))
     slide_map = get_slide_mapping(unpack_dir)
     targets = [
         slide_map[number]
         for number in range(min_slide, len(slide_map) + 1)
         if slide_map.get(number)
     ]
-    ids = (str(ident) for ident in itertools.count(FIRST_ID))
     modified_components: dict[str, list[str]] = {}
     total = 0
     for slide_archive_id in targets:
@@ -105,24 +123,43 @@ def process_presentation(
             continue
         slide_file = slide_files[-1]
         locator = slide_file.name.replace(".iwa.yaml", "")
-        slide_data = yaml.safe_load(slide_file.read_text(encoding="utf-8"))
-        new_archives = convert_slide(slide_data, ids)
+        slide_data = load(slide_file)
+        styles = {**sheet_styles, **archive_objects(slide_data)}
+        new_archives = convert_slide(slide_data, ids, styles, style)
         if not new_archives:
             continue
         # Each equation adds an attachment, the equation, a caption and a title.
         total += len(new_archives) // 4
         slide_data["chunks"][0]["archives"].extend(new_archives)
-        slide_file.write_text(yaml.safe_dump(slide_data), encoding="utf-8")
+        dump(slide_data, slide_file)
         modified_components[locator] = [arch["header"]["identifier"] for arch in new_archives]
     if modified_components:
-        register_components(index_dir / "Metadata.iwa.yaml", modified_components)
+        register_components(package, modified_components, component, style)
+        dump(meta, meta_path)
     return total
+
+
+def equation_style(
+    sheet_component: dict,
+    styles: dict[str, dict]
+) -> tuple[str, str]:
+    # The (stylesheet component, media style) pair every new equation points
+    # at. This reuses a media style the deck already has; if Keynote needs a
+    # dedicated equation style instead, this is the one place to create it.
+    media = {
+        obj.get("super", {}).get("styleIdentifier"): ident
+        for ident, obj in styles.items()
+        if obj.get("_pbtype") == "TSD.MediaStyleArchive"
+    }
+    for name in ("equation-0-imageStyle", "image-0-imageStyle"):
+        if name in media:
+            return sheet_component["identifier"], media[name]
+    return sheet_component["identifier"], next(iter(media.values()))
 
 
 def get_slide_mapping(unpack_dir: pathlib.Path) -> dict[int, str | None]:
     # 1-based slide number -> slide archive identifier, in presentation order.
-    doc_path = unpack_dir / "Index" / "Document.iwa.yaml"
-    doc_data = yaml.safe_load(doc_path.read_text(encoding="utf-8"))
+    doc_data = load(unpack_dir / "Index" / "Document.iwa.yaml")
     archives = doc_data["chunks"][0]["archives"]
     show = next(
         obj
@@ -143,7 +180,9 @@ def get_slide_mapping(unpack_dir: pathlib.Path) -> dict[int, str | None]:
 
 def convert_slide(
     slide_data: dict,
-    ids: Iterator[str]
+    ids: Iterator[str],
+    styles: dict[str, dict],
+    style: str
 ) -> list[dict]:
     # Presenter notes stay plain text, so their storages are never touched.
     note_ids = note_storage_ids(slide_data)
@@ -156,7 +195,7 @@ def convert_slide(
             for obj in arch.get("objects", []):
                 if obj.get("_pbtype") != "TSWP.StorageArchive" or not obj.get("text"):
                     continue
-                new_archives.extend(convert_storage(arch, obj, storage_id, ids))
+                new_archives.extend(convert_storage(arch, obj, storage_id, ids, styles, style))
     return new_archives
 
 
@@ -178,48 +217,137 @@ def convert_storage(
     arch: dict,
     obj: dict,
     storage_id: str,
-    ids: Iterator[str]
+    ids: Iterator[str],
+    styles: dict[str, dict],
+    style: str
 ) -> list[dict]:
+    # Keynote's character indices count UTF-16 code units, not code points.
     full_text = "".join(obj["text"])
     matches = find_equations(full_text)
     if not matches:
         return []
     obj_refs = arch["header"]["messageInfos"][0].setdefault("objectReferences", [])
-    all_attachments = list(obj.get("tableAttachment", {}).get("entries", []))
     new_text_parts: list[str] = []
     shift_points: list[tuple[int, int]] = []
+    new_attachments: list[dict] = []
     new_archives: list[dict] = []
     last_pos = 0
     for start, end, eq_source in matches:
+        start16 = utf16_len(full_text[:start])
+        shift_points.append((start16, start16 + utf16_len(full_text[start:end])))
+        properties = text_properties(host_style(obj, start16), styles)
         new_text_parts.append(full_text[last_pos:start])
-        curr_char_idx = sum(len(part) for part in new_text_parts)
+        curr_char_idx = utf16_len("".join(new_text_parts))
         new_text_parts.append(PLACEHOLDER)
-        shift_points.append((start, len(PLACEHOLDER) - (end - start)))
         attach_id, eq_id, caption_id, title_id = next(ids), next(ids), next(ids), next(ids)
         obj_refs.append(attach_id)
-        all_attachments.append({"characterIndex": curr_char_idx, "object": {"identifier": attach_id}})
+        new_attachments.append({"characterIndex": curr_char_idx, "object": {"identifier": attach_id}})
+        equation = equation_archive(
+            eq_id,
+            caption_id,
+            title_id,
+            storage_id,
+            eq_source,
+            style,
+            properties
+        )
         new_archives.append(attachment_archive(attach_id, eq_id))
-        new_archives.append(equation_archive(eq_id, caption_id, title_id, storage_id, eq_source))
+        new_archives.append(equation)
         new_archives.append(caption_archive(caption_id))
         new_archives.append(caption_archive(title_id))
         last_pos = end
     new_text_parts.append(full_text[last_pos:])
     obj["text"] = ["".join(new_text_parts)]
-    all_attachments.sort(key=lambda entry: entry["characterIndex"])
-    obj["tableAttachment"] = {"entries": all_attachments}
-    for key in PARA_TABLES:
-        for entry in obj.get(key, {}).get("entries", []):
-            if entry.get("characterIndex", 0) > 0:
-                entry["characterIndex"] = remap_char_index(entry["characterIndex"], shift_points)
+    for key, table in obj.items():
+        if key.startswith("table") and isinstance(table, dict) and "entries" in table:
+            table["entries"] = remap_entries(table["entries"], shift_points)
+    attachments = obj.get("tableAttachment", {}).get("entries", []) + new_attachments
+    obj["tableAttachment"] = {"entries": sorted(attachments, key=lambda entry: entry["characterIndex"])}
     return new_archives
+
+
+def remap_entries(
+    entries: list[dict],
+    shift_points: list[tuple[int, int]]
+) -> list[dict]:
+    # An entry that began inside a replaced span has no character left to
+    # begin at (a paragraph break inside the math, say), so it is dropped.
+    kept = []
+    for entry in entries:
+        index = remap_char_index(entry.get("characterIndex", 0), shift_points)
+        if index is None:
+            continue
+        if "characterIndex" in entry:
+            entry["characterIndex"] = index
+        kept.append(entry)
+    return kept
 
 
 def remap_char_index(
     old_idx: int,
     shift_points: list[tuple[int, int]]
-) -> int:
-    shift = sum(delta for pos, delta in shift_points if old_idx > pos)
-    return max(0, old_idx + shift)
+) -> int | None:
+    # Each (start, end) span of the old text is now one placeholder character.
+    shift = 0
+    for start, end in shift_points:
+        if start < old_idx < end:
+            return None
+        if old_idx >= end:
+            shift += 1 - (end - start)
+    return old_idx + shift
+
+
+def utf16_len(text: str) -> int:
+    return len(text.encode("utf-16-le")) // 2
+
+
+# Equation appearance, from the paragraph style the equation sits in
+
+def host_style(
+    obj: dict,
+    index: int
+) -> str | None:
+    style_id = None
+    for entry in obj.get("tableParaStyle", {}).get("entries", []):
+        if entry.get("characterIndex", 0) > index:
+            break
+        style_id = entry.get("object", {}).get("identifier")
+    return style_id
+
+
+def text_properties(
+    style_id: str | None,
+    styles: dict[str, dict]
+) -> dict:
+    font = char_property(style_id, styles, "fontName") or FALLBACK_FONT
+    size = char_property(style_id, styles, "fontSize") or FALLBACK_SIZE
+    color = char_property(style_id, styles, "fontColor") or BLACK
+    return {
+        "fontColor": dict(color),
+        "fontName": font,
+        "fontSize": size,
+        "tsdFill": {"color": dict(color)},
+    }
+
+
+def char_property(
+    style_id: str | None,
+    styles: dict[str, dict],
+    prop: str
+) -> object:
+    # A style's own value wins, else its parent's, up the chain. Either can
+    # sit behind any number of "super" wrappers.
+    while style_id is not None:
+        node = styles.get(style_id)
+        parent = None
+        while isinstance(node, dict):
+            value = node.get("charProperties", {}).get(prop)
+            if value is not None:
+                return value
+            parent = parent or node.get("parent", {}).get("identifier")
+            node = node.get("super")
+        style_id = parent
+    return None
 
 
 # New archives
@@ -250,7 +378,9 @@ def equation_archive(
     caption_id: str,
     title_id: str,
     storage_id: str,
-    eq_source: str
+    eq_source: str,
+    style: str,
+    properties: dict
 ) -> dict:
     return {
         "header": {
@@ -265,7 +395,7 @@ def equation_archive(
                     {"path": {"path": [1, 12]}, "unknownFieldRule": "IgnoreAndPreserve"},
                     {"path": {"path": [1, 13]}, "unknownFieldRule": "IgnoreAndPreserve"},
                 ],
-                "objectReferences": [caption_id, title_id, EQUATION_STYLE],
+                "objectReferences": [caption_id, title_id, style],
                 "type": 3005,
                 "version": [1, 0, 5],
             }],
@@ -275,17 +405,12 @@ def equation_archive(
             "[TSWP.EquationInfoArchive.equation_depth]": 0.369,
             "[TSWP.EquationInfoArchive.equation_source_old]": eq_source,
             "[TSWP.EquationInfoArchive.equation_source_text]": eq_source,
-            "[TSWP.EquationInfoArchive.equation_text_properties]": {
-                "fontColor": text_color(),
-                "fontName": "LibreFranklin-Thin_Regular",
-                "fontSize": 28.0,
-                "tsdFill": {"color": text_color()},
-            },
+            "[TSWP.EquationInfoArchive.equation_text_properties]": properties,
             "flags": 0,
             "interpretsUntaggedImageDataAsGeneric": False,
             "naturalSize": {"height": 25.0, "width": 80.0},
             "originalSize": {"height": 25.0, "width": 80.0},
-            "style": {"identifier": EQUATION_STYLE},
+            "style": {"identifier": style},
             "super": {
                 "aspectRatioLocked": True,
                 "caption": {"identifier": caption_id},
@@ -313,10 +438,6 @@ def equation_archive(
     }
 
 
-def text_color() -> dict:
-    return {"a": 1.0, "b": 0.9447617, "g": 0.9561592, "model": "rgb", "r": 0.9317923, "rgbspace": "srgb"}
-
-
 def caption_archive(ident: str) -> dict:
     return {
         "header": {
@@ -331,21 +452,23 @@ def caption_archive(ident: str) -> dict:
 # Component metadata: without these declarations Keynote offers to repair the file.
 
 def register_components(
-    meta_path: pathlib.Path,
-    modified_components: dict[str, list[str]]
+    package: dict,
+    modified_components: dict[str, list[str]],
+    component: str,
+    style: str
 ) -> None:
-    meta = yaml.safe_load(meta_path.read_text(encoding="utf-8"))
-    for chunk in meta.get("chunks", []):
-        for arch in chunk.get("archives", []):
-            for comp in arch.get("objects", [])[0].get("components", []):
-                if comp.get("locator") in modified_components:
-                    register_component(comp, modified_components[comp["locator"]])
-    meta_path.write_text(yaml.safe_dump(meta), encoding="utf-8")
+    new_ids = [int(ident) for idents in modified_components.values() for ident in idents]
+    package["lastObjectIdentifier"] = str(max(new_ids))
+    for comp in package["components"]:
+        if comp.get("locator") in modified_components:
+            register_component(comp, modified_components[comp["locator"]], component, style)
 
 
 def register_component(
     comp: dict,
-    new_ids: list[str]
+    new_ids: list[str],
+    component: str,
+    style: str
 ) -> None:
     comp["documentReadVersion"] = [4, 1, 0]
     comp["documentWriteVersion"] = [4, 1, 0]
@@ -356,9 +479,31 @@ def register_component(
     if "TSWPInlineDrawables" not in feat_ids:
         features.append({"identifier": "TSWPInlineDrawables", "readVersion": [4, 1, 0], "writeVersion": [4, 1, 0]})
     ext_refs = comp.setdefault("externalReferences", [])
-    if not any(ref.get("objectIdentifier") == EQUATION_STYLE for ref in ext_refs):
-        ext_refs.append({"componentIdentifier": STYLESHEET_COMPONENT, "objectIdentifier": EQUATION_STYLE})
+    if not any(ref.get("objectIdentifier") == style for ref in ext_refs):
+        ext_refs.append({"componentIdentifier": component, "objectIdentifier": style})
     uuid_entries = comp.setdefault("objectUuidMapEntries", [])
     for ident in new_ids:
         uuid = {"lower": str(random.getrandbits(64)), "upper": str(random.getrandbits(64))}
         uuid_entries.append({"identifier": ident, "uuid": uuid})
+
+
+# YAML
+
+def load(path: pathlib.Path) -> dict:
+    return yaml.load(path.read_text(encoding="utf-8"), Loader=LOADER)
+
+
+def dump(
+    data: dict,
+    path: pathlib.Path
+) -> None:
+    path.write_text(yaml.dump(data, Dumper=DUMPER), encoding="utf-8")
+
+
+def archive_objects(data: dict) -> dict[str, dict]:
+    return {
+        str(arch["header"]["identifier"]): arch["objects"][0]
+        for chunk in data["chunks"]
+        for arch in chunk["archives"]
+        if arch.get("objects")
+    }
