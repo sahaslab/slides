@@ -1,5 +1,5 @@
-import subprocess
 import sys
+import subprocess
 from slides import __version__
 from slides.cli import build_parser
 

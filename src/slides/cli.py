@@ -26,15 +26,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     convert = sub.add_parser("convert")
     convert.add_argument("target")
-    convert.add_argument("-f", "--format", required=True,
-                         choices=["deckwerk", "pptx", "keynote", "pdf"])
+    convert.add_argument(
+        "-f",
+        "--format",
+        required=True,
+        choices=["deckwerk", "pptx", "keynote", "pdf"],
+    )
     convert.add_argument("-o", "--output", default=None)
     convert.add_argument("--deckwerk-root", default=None)
 
     theme = sub.add_parser("theme")
     theme.add_argument("target")
-    theme.add_argument("-f", "--format", default="json",
-                       choices=["json", "matplotlib", "ggplot", "css"])
+    theme.add_argument(
+        "-f",
+        "--format",
+        default="json",
+        choices=["json", "matplotlib", "ggplot", "css"],
+    )
     theme.add_argument("--accents", type=int, default=6)
 
     info = sub.add_parser("info")
