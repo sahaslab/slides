@@ -3,12 +3,16 @@ import pathlib
 import shutil
 from slides.keynote import jxa, patch
 
-FRONT_DOCUMENT = "app.documents[0]"
+FRONT_DOCUMENT = (
+    "if (app.documents.length === 0) "
+    "{ throw new Error(\"No presentation is open.\"); }\n"
+    "var doc = app.documents[0];"
+)
 
 SCRIPT_CREATE = """
 var app = Application(%s);
 app.includeStandardAdditions = true;
-var doc = %s;
+%s
 var wanted = %s;
 var available = [];
 for (var m = 0; m < doc.masterSlides.length; m++) {
@@ -35,7 +39,7 @@ for (var i = 0; i < wanted.length; i++) {
   doc.slides.push(made);
   created += 1;
 }
-JSON.stringify({created: created, firstIndex: firstIndex});
+JSON.stringify({created: created, firstIndex: firstIndex, id: doc.id()});
 """
 
 
@@ -47,28 +51,35 @@ def build(
     patch._check(spec)
     order = sorted(spec, key=lambda k: int(k))
     wanted = [{"key": key, "master": spec[key].get("master")} for key in order]
-    document = _document_expression(template, output)
+    document = _document_statement(template, output)
     script = SCRIPT_CREATE % (
         jxa.literal(jxa.app_name()),
         document,
         json.dumps(wanted),
     )
     result = jxa.run_json(script)
-    patch.apply(_without_master(spec, order, result["firstIndex"]))
+    patch.apply(
+        _without_master(spec, order, result["firstIndex"]),
+        document=result["id"],
+    )
     return result
 
 
-def _document_expression(
+def _document_statement(
     template: str | None,
     output: str | None,
 ) -> str:
     if template is None:
         return FRONT_DOCUMENT
+    source = pathlib.Path(template)
     destination = pathlib.Path(output)
     if destination.exists():
         raise FileExistsError("%s already exists; refusing to overwrite" % (destination,))
-    shutil.copyfile(template, destination)
-    return "app.open(Path(%s))" % (jxa.literal(str(destination)),)
+    if source.is_dir():
+        shutil.copytree(source, destination)
+    else:
+        shutil.copyfile(source, destination)
+    return "var doc = app.open(Path(%s));" % (jxa.literal(str(destination)),)
 
 
 def _without_master(
