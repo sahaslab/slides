@@ -96,8 +96,8 @@ tests/
 - [ ] **Step 1: Write the failing test**
 
 ```python
-import subprocess
 import sys
+import subprocess
 from slides import __version__
 from slides.cli import build_parser
 
@@ -202,15 +202,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     convert = sub.add_parser("convert")
     convert.add_argument("target")
-    convert.add_argument("-f", "--format", required=True,
-                         choices=["deckwerk", "pptx", "keynote", "pdf"])
+    convert.add_argument(
+        "-f",
+        "--format",
+        required=True,
+        choices=["deckwerk", "pptx", "keynote", "pdf"],
+    )
     convert.add_argument("-o", "--output", default=None)
     convert.add_argument("--deckwerk-root", default=None)
 
     theme = sub.add_parser("theme")
     theme.add_argument("target")
-    theme.add_argument("-f", "--format", default="json",
-                       choices=["json", "matplotlib", "ggplot", "css"])
+    theme.add_argument(
+        "-f",
+        "--format",
+        default="json",
+        choices=["json", "matplotlib", "ggplot", "css"],
+    )
     theme.add_argument("--accents", type=int, default=6)
 
     info = sub.add_parser("info")
@@ -3749,7 +3757,8 @@ def test_master_is_stripped_before_patching(monkeypatch):
 def test_slides_are_created_in_numeric_order(monkeypatch):
     seen = {}
     monkeypatch.setattr(
-        jxa, "run_json",
+        jxa,
+        "run_json",
         lambda script: seen.setdefault("script", script) or {"created": 3},
     )
     monkeypatch.setattr(
@@ -4068,8 +4077,8 @@ git commit -m "feat: slides math"
 - [ ] **Step 1: Write the smoke test**
 
 ```python
-import subprocess
 import sys
+import subprocess
 import pytest
 from slides.cli import build_parser
 
