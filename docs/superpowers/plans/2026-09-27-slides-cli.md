@@ -199,6 +199,8 @@ def build_parser() -> argparse.ArgumentParser:
     dump.add_argument("--notes-only", action="store_true")
     dump.add_argument("--clipboard", action="store_true")
     dump.add_argument("--via-deckwerk", action="store_true")
+    dump.add_argument("--assets-dir", default=None)
+    dump.add_argument("--copy-media", action="store_true")
 
     convert = sub.add_parser("convert")
     convert.add_argument("target")
@@ -1044,8 +1046,27 @@ git commit -m "feat: markdown, text and JSON writers"
 - Test: `tests/test_dump.py`
 
 **Interfaces:**
-- Consumes: `slides.readers.read`, `slides.writers.render`.
-- Produces: `slides.commands.dump.run(args) -> int`.
+- Consumes: `slides.readers.read`, `slides.writers.render`, `slides.model.Embed`.
+- Produces: `slides.commands.dump.run(args) -> int`, `slides.commands.dump.copy_embeds(deck, destination, copy_media=False) -> dict[str, str]` returning a map of original src to the path written.
+
+**Sidecar assets.** Task 20 makes `web` and `video` elements reachable as
+`Slide.embeds`. `dump` is where they reach disk: when the output goes to a
+file, every `web` embed's page is copied into a sidecar folder beside it and
+the links in the rendered Markdown are rewritten to point there. DeckWerk's
+web pages are self-contained by construction — staged under `assets/web/` to
+run in an `<iframe sandbox>` with no access to the deck — so copying the file
+is enough to get a working demo.
+
+Rules:
+- The sidecar folder is `--assets-dir` if given, else the output file's stem
+  plus `_assets` (`talk.md` -> `talk_assets/`).
+- `video` embeds are linked, not copied — video files are large and already on
+  disk. `--copy-media` copies them too.
+- Dumping to stdout copies nothing, because there is no output location to
+  copy beside. Links then point at the paths inside the deck, and `dump` says
+  so once on stderr rather than silently producing dead links.
+- A `src` that does not exist on disk is reported on stderr and left linked in
+  place; a missing asset is not a reason to fail the whole dump.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1066,6 +1087,8 @@ def an_args(**kw) -> argparse.Namespace:
         "notes_only": False,
         "clipboard": False,
         "via_deckwerk": False,
+        "assets_dir": None,
+        "copy_media": False,
     }
     base.update(kw)
     return argparse.Namespace(**base)
@@ -1090,6 +1113,48 @@ def test_out_dir_names_the_file_after_the_deck(tmp_path):
 def test_json_format_uses_the_json_extension(tmp_path):
     assert dump.run(an_args(format="json", out_dir=str(tmp_path))) == 0
     assert (tmp_path / "mini_deckwerk.json").exists()
+
+
+def test_web_embed_is_copied_beside_the_output(tmp_path):
+    out = tmp_path / "deck.md"
+    assert dump.run(an_args(output=str(out))) == 0
+    copied = tmp_path / "deck_assets" / "demo.html"
+    assert copied.exists()
+    assert copied.read_text().strip() != ""
+    assert "deck_assets/demo.html" in out.read_text()
+
+
+def test_assets_dir_overrides_the_default_location(tmp_path):
+    out = tmp_path / "deck.md"
+    where = tmp_path / "elsewhere"
+    assert dump.run(an_args(output=str(out), assets_dir=str(where))) == 0
+    assert (where / "demo.html").exists()
+
+
+def test_video_is_linked_but_not_copied_by_default(tmp_path):
+    out = tmp_path / "deck.md"
+    assert dump.run(an_args(output=str(out))) == 0
+    assert not (tmp_path / "deck_assets" / "clip.mp4").exists()
+    assert "clip.mp4" in out.read_text()
+
+
+def test_stdout_copies_nothing_and_warns(tmp_path, capsys):
+    assert dump.run(an_args()) == 0
+    captured = capsys.readouterr()
+    assert "demo.html" in captured.out
+    assert "not copied" in captured.err
+
+
+def test_a_missing_asset_is_reported_and_does_not_fail_the_dump(tmp_path):
+    import json
+    import shutil
+    deck_dir = tmp_path / "deck"
+    shutil.copytree(FIXTURE, deck_dir)
+    (deck_dir / "assets" / "web" / "demo.html").unlink()
+    out = tmp_path / "deck.md"
+    args = an_args(target=str(deck_dir), output=str(out))
+    assert dump.run(args) == 0
+    assert out.exists()
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
