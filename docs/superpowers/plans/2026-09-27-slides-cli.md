@@ -1922,15 +1922,20 @@ FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "mini_deckwerk"
 def test_summarises_the_inventory():
     out = info.summarise(read(FIXTURE))
     assert "Mini" in out
-    assert "2 slides" in out
+    assert "3 slides" in out
     assert "1920" in out and "1080" in out
 
 
 def test_counts_text_tables_images_and_notes():
     out = info.summarise(read(FIXTURE))
-    assert "1 table" in out
+    assert "2 tables" in out
     assert "1 image" in out
     assert "1 slide with notes" in out
+
+
+def test_counts_web_pages_and_videos():
+    out = info.summarise(read(FIXTURE))
+    assert "1 web page, 1 video" in out
 
 
 def test_run_prints_and_succeeds(capsys):
@@ -1978,6 +1983,12 @@ def summarise(deck: Deck) -> str:
         ),
         "%d words of body text" % (words,),
     ]
+    kinds = [e.kind for s in deck.slides for e in s.embeds]
+    if kinds:
+        lines.append("%s, %s" % (
+            _plural(kinds.count("web"), "web page"),
+            _plural(kinds.count("video"), "video"),
+        ))
     if deck.fonts:
         lines.append("fonts: %s" % (", ".join(sorted(set(deck.fonts.values()))),))
     if deck.colors:
@@ -1999,7 +2010,7 @@ No `cli.py` change is needed: `slides.cli.dispatch` imports `slides.commands.inf
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `pytest tests/test_info.py -v`
-Expected: 3 passed
+Expected: 4 passed
 
 - [ ] **Step 6: Commit**
 
