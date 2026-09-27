@@ -1,6 +1,6 @@
 from slides import color
 from slides.model import ColorUse, Deck, Slide
-from slides.theme import DeckTheme, extract
+from slides.theme import NEUTRAL_CHROMA, DeckTheme, extract
 
 
 def a_deck(colors: list[ColorUse], background: str | None = "#0d1e1c") -> Deck:
@@ -104,3 +104,67 @@ def test_a_deck_with_no_colours_still_yields_a_theme():
     assert isinstance(theme, DeckTheme)
     assert theme.background and theme.foreground
     assert color.contrast(theme.foreground, theme.background) >= 4.5
+
+
+def test_accent_below_the_floor_is_raised_with_hue_held():
+    deck = a_deck([ColorUse("#003c45", 30.0, "fill")])
+    accents = extract(deck).accents
+    raised = accents[0]
+    assert color.contrast(raised, "#0d1e1c") >= 3.0
+    assert abs(color.to_oklch(raised)[2] - color.to_oklch("#003c45")[2]) < 5.0
+
+
+def test_mid_grey_background_reaches_contrast_floors():
+    deck = a_deck([ColorUse("#3355aa", 10.0, "fill")], background="#999999")
+    theme = extract(deck, accents=8)
+    assert color.contrast(theme.foreground, theme.background) >= 4.5
+    assert len(theme.accents) == 8
+    for accent in theme.accents:
+        assert color.contrast(accent, theme.background) >= 3.0
+
+
+def test_neutral_muted_and_grid_ignore_saturated_candidates():
+    deck = a_deck([
+        ColorUse("#e7e7e6", 68.0, "text"),
+        ColorUse("#a5d75f", 3.0, "text"),
+        ColorUse("#93a69f", 2.0, "text"),
+        ColorUse("#f0a35e", 1.0, "text"),
+        ColorUse("#79b8e8", 1.0, "text"),
+        ColorUse("#2c403b", 3.0, "fill"),
+        ColorUse("#980c0c", 1.0, "text"),
+    ])
+    theme = extract(deck)
+    assert theme.muted == "#93a69f"
+    assert theme.grid == "#2c403b"
+
+
+def test_a_near_miss_neutral_beats_a_clearing_accent_colour():
+    deck = a_deck(
+        [ColorUse("#777777", 80.0, "text"), ColorUse("#cc0000", 5.0, "text")],
+        background="#ffffff",
+    )
+    theme = extract(deck)
+    assert color.contrast(theme.foreground, theme.background) >= 4.5
+    assert color.to_oklch(theme.foreground)[1] < NEUTRAL_CHROMA
+    assert theme.foreground != "#cc0000"
+
+
+def test_background_kind_wins_over_a_heavier_neutral_fill():
+    deck = a_deck(
+        [
+            ColorUse("#f5f5f5", 100.0, "fill"),
+            ColorUse("#101820", 10.0, "background"),
+            ColorUse("#a5d75f", 5.0, "text"),
+        ],
+        background=None,
+    )
+    assert extract(deck).background == "#101820"
+
+
+def test_padding_never_runs_short():
+    for background in ["#ffffff", "#000000", "#0d1e1c"]:
+        deck = a_deck([ColorUse("#a5d75f", 20.0, "fill")], background=background)
+        for count in range(1, 17):
+            accents = extract(deck, accents=count).accents
+            assert len(accents) == count
+            assert len(set(accents)) == count
