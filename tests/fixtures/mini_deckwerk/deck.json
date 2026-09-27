@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "title": "Mini",
+  "canvas": { "w": 1920, "h": 1080 },
+  "themeStyle": {
+    "fonts": {
+      "title": { "family": "Libre Franklin" },
+      "body": { "family": "Libre Franklin" }
+    }
+  },
+  "slides": [
+    {
+      "id": "slide-1",
+      "name": "Opening",
+      "background": "#0d1e1c",
+      "notes": "Say hello.",
+      "elements": [
+        { "id": "e1", "x": 120, "y": 84, "w": 1680, "h": 67, "z": 1,
+          "type": "text", "html": "Opening" },
+        { "id": "e2", "x": 120, "y": 300, "w": 800, "h": 60, "z": 2,
+          "type": "text",
+          "html": "First <span style=\"color: rgb(165, 215, 95);\">point</span>" },
+        { "id": "e3", "x": 960, "y": 300, "w": 800, "h": 400, "z": 3,
+          "type": "image", "src": "assets/plot.png" }
+      ]
+    },
+    {
+      "id": "slide-2",
+      "name": "Numbers",
+      "background": "#0d1e1c",
+      "notes": "",
+      "elements": [
+        { "id": "e4", "x": 120, "y": 84, "w": 1680, "h": 67, "z": 1,
+          "type": "text", "html": "Numbers" },
+        { "id": "e5", "x": 120, "y": 300, "w": 800, "h": 200, "z": 2,
+          "type": "table",
+          "rows": [["Model", "MSE"], ["Linear", "3.2"], ["Quadratic", "2.1"]] }
+      ]
+    }
+  ]
+}
