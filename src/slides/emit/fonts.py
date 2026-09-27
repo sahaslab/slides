@@ -20,25 +20,37 @@ FALLBACK = {
 
 
 def split_stack(spec: str) -> tuple[str, list[str]]:
-    tokens = [token.strip().strip("\"'") for token in spec.split(",")]
-    tokens = [token for token in tokens if token]
-    lowered = [token.lower() for token in tokens]
-    if "monospace" in lowered or "ui-monospace" in lowered:
+    tokens = _tokens(spec)
+    generics = [name.lower() for name, quoted in tokens if not quoted]
+    if "monospace" in generics or "ui-monospace" in generics:
         generic = "monospace"
-    elif "serif" in lowered or "ui-serif" in lowered:
+    elif "serif" in generics or "ui-serif" in generics:
         generic = "serif"
     else:
         generic = "sans-serif"
     names = []
-    for token in tokens:
-        if token.lower() in GENERIC_KEYWORDS:
+    for name, quoted in tokens:
+        if not quoted and name.lower() in GENERIC_KEYWORDS:
             continue
-        if token not in names:
-            names.append(token)
+        if name not in names:
+            names.append(name)
     fallback = FALLBACK[generic]
     if fallback not in names:
         names.append(fallback)
     return generic, names
+
+
+def _tokens(spec: str) -> list[tuple[str, bool]]:
+    # A quoted token ("Serif") is a literal CSS family name even if it reads
+    # like a generic keyword; only a bare, unquoted token is the keyword.
+    tokens = []
+    for raw in spec.split(","):
+        raw = raw.strip()
+        quoted = len(raw) >= 2 and raw[0] in "\"'" and raw[-1] == raw[0]
+        name = raw[1:-1] if quoted else raw
+        if name:
+            tokens.append((name, quoted))
+    return tokens
 
 
 def primary_family(
