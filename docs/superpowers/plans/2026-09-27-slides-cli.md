@@ -4456,6 +4456,32 @@ Expected: 8 passed. If `python -m slides.cli` fails, the `if __name__ == "__main
 
 Cover, in this order: what the tool is in two sentences; the `uv tool install --editable .` line; a table of the seven commands with one example each; the library example (`read_deck` plus a writer, and `extract` plus `deck_style`); the `SLIDES_DECKWERK_ROOT` and `SLIDES_KEYNOTE_APP` environment variables; and a short "what this does not do" list taken from the spec's out-of-scope section. No course or project names anywhere.
 
+**Amendments (controller, before dispatch).** The README describes the tool as
+built, not as planned; read the spec and each command's `run` before writing
+its row. In particular:
+- `slides theme -f matplotlib` prints a style sheet for `plt.style.use()`;
+  `-f css` defines `--deck-background`, `--deck-foreground`, `--deck-muted`,
+  `--deck-grid`, `--deck-accent-1..N` and `--deck-font-<role>` — document these
+  names as the stable contract a web page can rely on; `-f ggplot` stops with a
+  message when a scale needs more colours than `--accents` gave it.
+- `slides dump` copies interactive pages beside the output (`--assets-dir`,
+  `--copy-media`) and links them from the Markdown.
+- `slides patch` also accepts a `dump -f json` file and applies only titles and
+  notes from it, and says why.
+- Safety, stated plainly in its own short section: `convert`, `math` and
+  `scaffold` never overwrite an existing output or modify their source;
+  `scaffold` copies its template; `patch` and `scaffold` drive the Keynote
+  application and change the document they target, and nothing else does
+  without being told to (`dump` with no target reads the front document).
+- The library example imports `deck_style` from `slides.emit.matplotlib`.
+
+Install: `uv tool install --editable .` is the documented line, but do NOT run
+it (it adds a global command to the user's machine). Verify the packaging
+instead with a throwaway environment: `uv build` then
+`uvx --from dist/slides-0.1.0-py3-none-any.whl slides --help`, and
+`uvx --from . slides info tests/fixtures/mini_deckwerk`. Replace Step 4 with
+that check.
+
 - [ ] **Step 4: Install and verify the real entry point**
 
 ```bash
