@@ -4066,6 +4066,289 @@ git commit -m "feat: slides math"
 
 ---
 
+## Task 20: Interactive demos, video and fallback tables
+
+**Files:**
+- Modify: `src/slides/model.py`, `src/slides/readers/deckwerk.py`, `src/slides/writers/markdown.py`, `src/slides/writers/text.py`, `src/slides/writers/json.py`
+- Test: `tests/test_embeds.py`, and extend `tests/fixtures/mini_deckwerk/deck.json`
+
+**Interfaces:**
+- Consumes: the existing model and DeckWerk reader.
+- Produces:
+  - `slides.model.Embed(kind: str, src: str, title: str | None = None, poster: str | None = None, x=None, y=None, w=None, h=None)` — `kind` is `"web"` or `"video"`
+  - `slides.model.Slide.embeds: list[Embed]`
+  - `slides.writers.markdown.render` emits a link line per embed
+  - `slides.writers.json.to_dict` emits an `"embeds"` list per slide
+
+**Why this task exists.** The DeckWerk reader currently recognises `text`,
+`image`, `table` and `shape`, and silently drops everything else. Measured
+against a real 68-slide deck, that loses: 2 `web` elements (a least-squares
+playground and a live Python REPL), 2 `video` elements, and 4 `html` elements.
+A slide whose whole content is an interactive demo dumps as a blank slide.
+
+The real element shapes, read from that deck's `deck.json`:
+
+```json
+{"type": "web", "w": 1680, "h": 780,
+ "src": "assets/web/playground.3898dd78.html",
+ "poster": "assets/web/playground.3898dd78.poster.png",
+ "title": "Least-squares playground"}
+
+{"type": "video", "w": 1200, "h": 528, "src": "assets/vid_rotate.mp4",
+ "poster": null}
+
+{"type": "html", "w": "998.06", "h": "464.88",
+ "html": "<table class=\"tbl b element element-html\" ...>",
+ "css": "...", "sandboxed": "True",
+ "fallbackReason": "TABLE is preserved as HTML"}
+```
+
+Note `html` is the importer's **fallback**, not a first-class type, and in
+practice it holds a table. Its `w`/`h` arrive as strings, not numbers.
+
+- [ ] **Step 1: Add the fixture elements**
+
+Add to `tests/fixtures/mini_deckwerk/deck.json` a third slide carrying one of
+each, so every branch has a test:
+
+```json
+{
+  "id": "slide-3",
+  "name": "Demos",
+  "background": "#0d1e1c",
+  "notes": "",
+  "elements": [
+    { "id": "e6", "x": 120, "y": 84, "w": 1680, "h": 67, "z": 1,
+      "type": "text", "html": "Demos" },
+    { "id": "e7", "x": 120, "y": 200, "w": 1680, "h": 780, "z": 2,
+      "type": "web", "src": "assets/web/demo.html",
+      "poster": "assets/web/demo.poster.png", "title": "A demo" },
+    { "id": "e8", "x": 120, "y": 1000, "w": 1200, "h": 528, "z": 3,
+      "type": "video", "src": "assets/clip.mp4", "poster": null },
+    { "id": "e9", "x": 120, "y": 1100, "w": "998.06", "h": "464.88", "z": 4,
+      "type": "html", "sandboxed": "True",
+      "fallbackReason": "TABLE is preserved as HTML",
+      "html": "<table><tr><td>Model</td><td>MSE</td></tr><tr><td>Linear</td><td>3.2</td></tr></table>" }
+  ]
+}
+```
+
+Also create `tests/fixtures/mini_deckwerk/assets/web/demo.html` containing a
+minimal self-contained page, so the copy path in Task 5 has something real to
+copy.
+
+- [ ] **Step 2: Write the failing test**
+
+```python
+import pathlib
+from slides.model import Deck, Embed, Slide
+from slides.readers.deckwerk import read
+from slides.writers import json as json_writer
+from slides.writers import markdown
+
+FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "mini_deckwerk"
+
+
+def test_web_element_becomes_an_embed():
+    slide = read(FIXTURE).slides[2]
+    web = [e for e in slide.embeds if e.kind == "web"]
+    assert len(web) == 1
+    assert web[0].src == "assets/web/demo.html"
+    assert web[0].title == "A demo"
+    assert web[0].poster == "assets/web/demo.poster.png"
+
+
+def test_video_element_becomes_an_embed():
+    slide = read(FIXTURE).slides[2]
+    video = [e for e in slide.embeds if e.kind == "video"]
+    assert len(video) == 1
+    assert video[0].src == "assets/clip.mp4"
+    assert video[0].poster is None
+
+
+def test_html_fallback_table_becomes_a_real_table():
+    slide = read(FIXTURE).slides[2]
+    assert [row for row in slide.tables[0].rows] == [
+        ["Model", "MSE"],
+        ["Linear", "3.2"],
+    ]
+
+
+def test_html_fallback_is_not_also_emitted_as_body_text():
+    slide = read(FIXTURE).slides[2]
+    assert not any("Model" in i.text for i in slide.body_items())
+
+
+def test_markdown_links_a_web_embed():
+    out = markdown.render(read(FIXTURE))
+    assert "[Interactive: A demo](assets/web/demo.html)" in out
+
+
+def test_markdown_links_a_video_embed_by_filename():
+    out = markdown.render(read(FIXTURE))
+    assert "[Video: clip.mp4](assets/clip.mp4)" in out
+
+
+def test_markdown_names_an_untitled_web_embed_by_filename():
+    deck = Deck(
+        title="T",
+        slides=[Slide(number=1, embeds=[Embed(kind="web", src="a/b/thing.html")])],
+    )
+    assert "[Interactive: thing.html](a/b/thing.html)" in markdown.render(deck)
+
+
+def test_notes_only_drops_embeds():
+    out = markdown.render(read(FIXTURE), notes_only=True)
+    assert "demo.html" not in out
+
+
+def test_json_carries_embeds_structurally():
+    import json as jsonlib
+    parsed = jsonlib.loads(json_writer.render(read(FIXTURE)))
+    embeds = parsed["slides"][2]["embeds"]
+    assert {"kind": "web", "src": "assets/web/demo.html", "title": "A demo"} in [
+        {"kind": e["kind"], "src": e["src"], "title": e["title"]} for e in embeds
+    ]
+
+
+def test_text_writer_names_embeds_without_markup():
+    from slides.writers import text
+    out = text.render(read(FIXTURE))
+    assert "A demo" in out
+    assert "[" not in out
+```
+
+- [ ] **Step 3: Run the tests to verify they fail**
+
+Run: `pytest tests/test_embeds.py -v`
+Expected: FAIL with `ImportError: cannot import name 'Embed' from 'slides.model'`
+
+- [ ] **Step 4: Add `Embed` to `src/slides/model.py`**
+
+Place it after `Image`, and add the field to `Slide`.
+
+```python
+@dataclass
+class Embed:
+    kind: str
+    src: str
+    title: str | None = None
+    poster: str | None = None
+    x: float | None = None
+    y: float | None = None
+    w: float | None = None
+    h: float | None = None
+```
+
+In `Slide`, beside `images`:
+
+```python
+    embeds: list[Embed] = field(default_factory=list)
+```
+
+- [ ] **Step 5: Handle the three element types in the DeckWerk reader**
+
+In `_slide`, alongside the existing branches. `_number` guards the string
+geometry that `html` elements carry.
+
+```python
+        elif kind in ("web", "video"):
+            slide.embeds.append(Embed(
+                kind=kind,
+                src=element.get("src") or "",
+                title=element.get("title"),
+                poster=element.get("poster"),
+                x=_number(element.get("x")),
+                y=_number(element.get("y")),
+                w=_number(element.get("w")),
+                h=_number(element.get("h")),
+            ))
+        elif kind == "html":
+            rows = _html_table(element.get("html") or "")
+            if rows:
+                slide.tables.append(Table(rows=rows))
+```
+
+and the two helpers:
+
+```python
+def _number(value) -> float | None:
+    if value is None:
+        return None
+    return float(value)
+
+
+def _html_table(markup: str) -> list[list[str]]:
+    parser = _TableParser()
+    parser.feed(markup)
+    return parser.rows
+```
+
+`_TableParser` subclasses `HTMLParser` the same way `_Stripper` does: it
+collects `<tr>` into rows and `<td>`/`<th>` into cells, keeping the cell text
+stripped. Write it beside `_Stripper`.
+
+- [ ] **Step 6: Render embeds in the writers**
+
+In `markdown._slide`, after the tables loop:
+
+```python
+    for embed in slide.embeds:
+        parts.append("%s
+" % (_link(embed),))
+```
+
+```python
+def _link(embed: Embed) -> str:
+    name = embed.title or pathlib.PurePosixPath(embed.src).name
+    label = "Interactive" if embed.kind == "web" else "Video"
+    return "[%s: %s](%s)" % (label, name, embed.src)
+```
+
+Add `import pathlib` to that module's builtins block, and import `Embed`.
+
+In `text.render`, append `embed.title or the filename` as a bare line. In
+`json._slide`, add:
+
+```python
+        "embeds": [
+            {
+                "kind": e.kind,
+                "src": e.src,
+                "title": e.title,
+                "poster": e.poster,
+            }
+            for e in slide.embeds
+        ],
+```
+
+- [ ] **Step 7: Run the tests to verify they pass**
+
+Run: `pytest tests/ -v`
+Expected: every test passes, including the whole existing suite.
+
+- [ ] **Step 8: Verify against the real deck**
+
+```bash
+python -c "
+from slides import read_deck
+d = read_deck('$HOME/Desktop/Git/Class/introml/slides/drafts/early_term_2026/keynote/04_sep28_conditional_linear')
+print('embeds:', [(e.kind, e.title or e.src) for s in d.slides for e in s.embeds])
+print('tables:', sum(len(s.tables) for s in d.slides))
+"
+```
+Expected: 2 web embeds (one of them "Least-squares playground"), 2 video
+embeds, and a table count that has risen by the 4 recovered `html` fallbacks.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add src/slides/model.py src/slides/readers/deckwerk.py src/slides/writers tests/
+git commit -m "feat: read and render interactive demos, video and fallback tables"
+```
+
+---
+
 ## Task 19: README, install, and the full run
 
 **Files:**
