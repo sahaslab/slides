@@ -9,7 +9,11 @@ def to_rgb(value: str) -> tuple[float, float, float]:
     return tuple(int(text[i:i + 2], 16) / 255.0 for i in (0, 2, 4))
 
 
-def to_hex(r: float, g: float, b: float) -> str:
+def to_hex(
+    r: float,
+    g: float,
+    b: float,
+) -> str:
     return "#%02x%02x%02x" % tuple(
         max(0, min(255, int(round(c * 255.0)))) for c in (r, g, b)
     )
@@ -27,7 +31,11 @@ def to_oklab(value: str) -> tuple[float, float, float]:
     )
 
 
-def from_oklab(L: float, a: float, b: float) -> str:
+def from_oklab(
+    L: float,
+    a: float,
+    b: float,
+) -> str:
     r, g, b_ = _oklab_to_linear(L, a, b)
     return to_hex(_srgb(r), _srgb(g), _srgb(b_))
 
@@ -37,7 +45,11 @@ def to_oklch(value: str) -> tuple[float, float, float]:
     return L, math.hypot(a, b), math.degrees(math.atan2(b, a)) % 360.0
 
 
-def from_oklch(L: float, C: float, H: float) -> str:
+def from_oklch(
+    L: float,
+    C: float,
+    H: float,
+) -> str:
     radians = math.radians(H)
     return from_oklab(L, C * math.cos(radians), C * math.sin(radians))
 
@@ -46,29 +58,53 @@ def luminance(value: str) -> float:
     return sum(k * _linear(c) for k, c in zip(LUMA, to_rgb(value)))
 
 
-def contrast(one: str, other: str) -> float:
+def contrast(
+    one: str,
+    other: str,
+) -> float:
     a, b = luminance(one), luminance(other)
     high, low = max(a, b), min(a, b)
     return (high + 0.05) / (low + 0.05)
 
 
-def delta_e(one: str, other: str) -> float:
+def contrast_extreme(against: str) -> float:
+    # Which of pure white or pure black has more contrast headroom against
+    # a background: not always white just because the background is dark.
+    # Luminance and contrast are not symmetric around 0.5 (WCAG's "+0.05"
+    # offset skews the crossover to luminance about 0.179), so a background
+    # can be dark enough by the luminance<0.5 test yet still contrast better
+    # against black, e.g. #767676..#bcbcbc.
+    return 1.0 if contrast("#ffffff", against) >= contrast("#000000", against) else 0.0
+
+
+def delta_e(
+    one: str,
+    other: str,
+) -> float:
     first, second = to_oklab(one), to_oklab(other)
     return math.sqrt(sum((x - y) ** 2 for x, y in zip(first, second)))
 
 
-def mix(one: str, other: str, amount: float) -> str:
+def mix(
+    one: str,
+    other: str,
+    amount: float,
+) -> str:
     first, second = to_oklab(one), to_oklab(other)
     return from_oklab(*[x + (y - x) * amount for x, y in zip(first, second)])
 
 
-def with_contrast(colour: str, against: str, ratio: float) -> str:
+def with_contrast(
+    colour: str,
+    against: str,
+    ratio: float,
+) -> str:
     # May reduce the result's chroma, at fixed lightness and hue, to keep it
     # inside the sRGB gamut.
     if contrast(colour, against) >= ratio:
         return colour
     L, C, H = to_oklch(colour)
-    target = 1.0 if luminance(against) < 0.5 else 0.0
+    target = contrast_extreme(against)
     low, high = L, target
     best = from_oklch(target, _fit_chroma(target, C, H), H)
     # Binary search on lightness: contrast is monotone as L moves away from
@@ -87,7 +123,11 @@ def with_contrast(colour: str, against: str, ratio: float) -> str:
     return best
 
 
-def _oklab_to_linear(L: float, a: float, b: float) -> tuple[float, float, float]:
+def _oklab_to_linear(
+    L: float,
+    a: float,
+    b: float,
+) -> tuple[float, float, float]:
     l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3
     m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3
     s = (L - 0.0894841775 * a - 1.2914855480 * b) ** 3
@@ -98,13 +138,21 @@ def _oklab_to_linear(L: float, a: float, b: float) -> tuple[float, float, float]
     )
 
 
-def _in_gamut(L: float, C: float, H: float) -> bool:
+def _in_gamut(
+    L: float,
+    C: float,
+    H: float,
+) -> bool:
     radians = math.radians(H)
     r, g, b = _oklab_to_linear(L, C * math.cos(radians), C * math.sin(radians))
     return 0.0 <= r <= 1.0 and 0.0 <= g <= 1.0 and 0.0 <= b <= 1.0
 
 
-def _fit_chroma(L: float, C: float, H: float) -> float:
+def _fit_chroma(
+    L: float,
+    C: float,
+    H: float,
+) -> float:
     if _in_gamut(L, C, H):
         return C
     low, high = 0.0, C
