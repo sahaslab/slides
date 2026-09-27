@@ -1,6 +1,5 @@
 import re
 import json
-import html
 import pathlib
 from html.parser import HTMLParser
 from slides.model import ColorUse, Deck, Image, Slide, Table, TextItem
@@ -8,6 +7,7 @@ from slides.model import ColorUse, Deck, Image, Slide, Table, TextItem
 BREAK_TAGS = {"br", "p", "div", "li", "tr"}
 RGB = re.compile(r"rgb\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)")
 HEX = re.compile(r"#([0-9a-fA-F]{6})\b")
+SLIDE_NUMBER_MARKER = "data-slide-number"
 
 
 class _Stripper(HTMLParser):
@@ -82,10 +82,13 @@ def _slide(number: int, raw: dict, colors: dict) -> Slide:
     for element in elements:
         kind = element.get("type")
         if kind == "text":
-            text = strip_html(element.get("html") or "")
+            markup = element.get("html") or ""
+            if SLIDE_NUMBER_MARKER in markup:
+                continue
+            text = strip_html(markup)
             if not text:
                 continue
-            for value in _colors_in(element.get("html") or ""):
+            for value in _colors_in(markup):
                 _add_color(colors, value, "text", 1.0)
             slide.items.append(TextItem(
                 text=text,
