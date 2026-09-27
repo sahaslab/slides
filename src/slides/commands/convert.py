@@ -11,6 +11,8 @@ def run(args: argparse.Namespace) -> int:
     route = (kind, args.format)
     if route == ("keynote", "deckwerk"):
         return _to_deckwerk(args, source)
+    if route in (("deckwerk", "pptx"), ("keynote", "pptx")):
+        return _to_pptx(args, source)
     raise ValueError("cannot convert %s to %s" % (kind, args.format))
 
 
@@ -27,5 +29,20 @@ def _to_deckwerk(
         sys.stderr.write(
             "%d elements came through as placeholders\n" % (unsupported,)
         )
+    sys.stdout.write("%s\n" % (out,))
+    return 0
+
+
+def _to_pptx(
+    args: argparse.Namespace,
+    source: pathlib.Path
+) -> int:
+    from slides.writers import pptx as writer
+    out = pathlib.Path(args.output) if args.output else source.with_suffix(".pptx")
+    if out.exists():
+        sys.stderr.write("%s already exists; pass -o with a new path\n" % (out,))
+        return 1
+    writer.write(readers.read(source), out)
+    sys.stderr.write("Builds and transitions do not survive this route\n")
     sys.stdout.write("%s\n" % (out,))
     return 0
