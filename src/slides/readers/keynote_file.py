@@ -6,7 +6,6 @@ from collections.abc import Iterator
 from slides.model import ColorUse, Deck, Slide, TextItem
 
 STORAGE_KEYS = ("ownedStorage", "deprecatedStorage", "containedStorage")
-TITLE_KIND = "kKindTitlePlaceholder"
 WHITESPACE = re.compile(r"[    ]+")
 BLANK_LINES = re.compile(r"\n{2,}")
 
@@ -27,8 +26,6 @@ def read(path: str | pathlib.Path, via_deckwerk: bool = False) -> Deck:
         kind="keynote",
     )
     colors: dict[tuple[str, str], float] = {}
-    for obj in index.values():
-        _harvest_colors(obj, colors)
     order = show.get("slideTree", {}).get("slides", [])
     for number, node_ref in enumerate(order, start=1):
         node = index.get(node_ref["identifier"])
@@ -38,7 +35,7 @@ def read(path: str | pathlib.Path, via_deckwerk: bool = False) -> Deck:
         raw = index.get(slide_id)
         if raw is None:
             continue
-        deck.slides.append(_slide(number, raw, index))
+        deck.slides.append(_slide(number, raw, index, colors))
     deck.colors = [
         ColorUse(hex=key[0], weight=weight, kind=key[1])
         for key, weight in sorted(colors.items(), key=lambda kv: -kv[1])
@@ -78,12 +75,18 @@ def _first(index: dict[str, dict], pbtype: str) -> dict:
     raise ValueError("no %s in this deck" % (pbtype,))
 
 
-def _slide(number: int, raw: dict, index: dict) -> Slide:
+def _slide(number: int, raw: dict, index: dict, colors: dict) -> Slide:
     slide = Slide(number=number)
+    slide.background = _resolve_background(raw, index, colors)
     title_id = raw.get("titlePlaceholder", {}).get("identifier")
     for ref in raw.get("drawablesZOrder", []):
         drawable_id = ref["identifier"]
-        text = clean(_text_of(index.get(drawable_id), index))
+        drawable = index.get(drawable_id)
+        storage = _storage_of(drawable, index) if drawable is not None else None
+        _harvest_fill(drawable, index, colors)
+        if storage is not None:
+            _harvest_text_colors(storage, index, colors)
+        text = clean(_text_from_storage(storage))
         if not text:
             continue
         role = "title" if drawable_id == title_id else "body"
@@ -101,7 +104,10 @@ def _slide(number: int, raw: dict, index: dict) -> Slide:
 def _text_of(drawable: dict | None, index: dict) -> str:
     if drawable is None:
         return ""
-    storage = _storage_of(drawable, index)
+    return _text_from_storage(_storage_of(drawable, index))
+
+
+def _text_from_storage(storage: dict | None) -> str:
     if storage is None:
         return ""
     return "".join(storage.get("text") or [])
@@ -116,19 +122,136 @@ def _storage_of(drawable: dict, index: dict) -> dict | None:
     return None
 
 
-def _harvest_colors(node: object, colors: dict, weight: float = 1.0) -> None:
-    if isinstance(node, dict):
-        if {"r", "g", "b"} <= set(node.keys()):
-            value = "#%02x%02x%02x" % tuple(
-                max(0, min(255, int(round(float(node[k]) * 255))))
-                for k in ("r", "g", "b")
-            )
-            colors[(value, "fill")] = colors.get((value, "fill"), 0.0) + weight
-        for child in node.values():
-            _harvest_colors(child, colors, weight)
-    elif isinstance(node, list):
-        for child in node:
-            _harvest_colors(child, colors, weight)
+def _resolve_background(raw: dict, index: dict, colors: dict) -> str | None:
+    style_id = raw.get("style", {}).get("identifier")
+    color = _resolve_color(style_id, index, "slideProperties", "fill")
+    if color is None:
+        # Slides that don't set their own fill inherit their master's.
+        template = index.get(raw.get("templateSlide", {}).get("identifier")) or {}
+        template_style_id = template.get("style", {}).get("identifier")
+        color = _resolve_color(template_style_id, index, "slideProperties", "fill")
+    if color is None:
+        return None
+    hexvalue = _to_hex(color)
+    colors[(hexvalue, "background")] = colors.get((hexvalue, "background"), 0.0) + 1.0
+    return hexvalue
+
+
+def _harvest_fill(drawable: dict | None, index: dict, colors: dict) -> None:
+    if drawable is None:
+        return
+    style_id = _style_ref(drawable)
+    if style_id is None:
+        return
+    color = _resolve_color(style_id, index, "shapeProperties", "fill")
+    if color is None:
+        return
+    hexvalue = _to_hex(color)
+    colors[(hexvalue, "fill")] = colors.get((hexvalue, "fill"), 0.0) + 1.0
+
+
+def _harvest_text_colors(storage: dict, index: dict, colors: dict) -> None:
+    text_length = sum(len(run) for run in (storage.get("text") or []))
+    if text_length == 0:
+        return
+    entries = sorted(
+        storage.get("tableParaStyle", {}).get("entries", []),
+        key=lambda entry: entry["characterIndex"],
+    )
+    for position, entry in enumerate(entries):
+        start = entry["characterIndex"]
+        end = (
+            entries[position + 1]["characterIndex"]
+            if position + 1 < len(entries)
+            else text_length
+        )
+        length = end - start
+        if length <= 0:
+            continue
+        style_id = entry.get("object", {}).get("identifier")
+        if style_id is None:
+            continue
+        color = _resolve_color(style_id, index, "charProperties", "fontColor")
+        if color is None:
+            continue
+        hexvalue = _to_hex(color)
+        weight = colors.get((hexvalue, "text"), 0.0)
+        colors[(hexvalue, "text")] = weight + float(length)
+
+
+def _style_ref(drawable: dict) -> str | None:
+    # A drawable's own shape style sits behind a chain of base-class "super"
+    # wrappers whose depth varies by drawable type (placeholders wrap one
+    # more level than plain shapes), so walk down looking for it.
+    node = drawable
+    while isinstance(node, dict):
+        ref = node.get("style")
+        if isinstance(ref, dict) and "identifier" in ref:
+            return ref["identifier"]
+        node = node.get("super")
+    return None
+
+
+def _style_parent(style: dict) -> str | None:
+    # Likewise, a style's "parent" (its named/master style, one level up the
+    # override chain) sits behind a variable number of "super" wrappers.
+    node = style
+    while isinstance(node, dict):
+        parent = node.get("parent")
+        if isinstance(parent, dict) and "identifier" in parent:
+            return parent["identifier"]
+        node = node.get("super")
+    return None
+
+
+def _color_at(node: dict, group: str, prop: str) -> tuple[bool, dict | None]:
+    props = node.get(group)
+    if not isinstance(props, dict):
+        return False, None
+    if prop == "fill":
+        if "fill" not in props:
+            return False, None
+        fill = props["fill"]
+        color = fill.get("color") if isinstance(fill, dict) else None
+    else:
+        if prop not in props:
+            return False, None
+        color = props[prop]
+    if isinstance(color, dict) and {"r", "g", "b"} <= set(color.keys()):
+        return True, color
+    # The property is set at this level but isn't a solid colour (an image
+    # or gradient fill, or an explicit null) -- stop, don't inherit a stale
+    # colour from a parent style this level deliberately overrode.
+    return True, None
+
+
+def _resolve_color(
+    style_id: str | None,
+    index: dict,
+    group: str,
+    prop: str,
+) -> dict | None:
+    seen: set[str] = set()
+    while style_id is not None and style_id not in seen:
+        seen.add(style_id)
+        style = index.get(style_id)
+        if style is None:
+            return None
+        node = style
+        while isinstance(node, dict):
+            found, color = _color_at(node, group, prop)
+            if found:
+                return color
+            node = node.get("super")
+        style_id = _style_parent(style)
+    return None
+
+
+def _to_hex(color: dict) -> str:
+    return "#%02x%02x%02x" % tuple(
+        max(0, min(255, int(round(float(color[k]) * 255))))
+        for k in ("r", "g", "b")
+    )
 
 
 def clean(text: str) -> str:
