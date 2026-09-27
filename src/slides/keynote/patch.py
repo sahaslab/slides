@@ -13,8 +13,15 @@ function readSpec(path) {
 }
 var spec = readSpec(%s);
 var app = Application(%s);
-if (app.documents.length === 0) { throw new Error("No presentation is open."); }
-var doc = app.documents[0];
+var documentId = %s;
+var doc;
+if (documentId) {
+  doc = app.documents.byId(documentId);
+  if (!doc.exists()) { throw new Error("No open document with id " + documentId); }
+} else {
+  if (app.documents.length === 0) { throw new Error("No presentation is open."); }
+  doc = app.documents[0];
+}
 var updated = 0;
 var skipped = [];
 for (var key in spec) {
@@ -52,9 +59,11 @@ JSON.stringify({updated: updated, skipped: skipped});
 def apply(
     spec: dict,
     app: str | None = None,
+    document: str | None = None,
 ) -> dict:
     _check(spec)
     name = app or jxa.app_name()
+    document_id = jxa.literal(document) if document is not None else "null"
     with tempfile.NamedTemporaryFile(
         mode="w",
         suffix=".json",
@@ -62,7 +71,12 @@ def apply(
     ) as handle:
         json.dump(spec, handle)
         handle.flush()
-        return jxa.run_json(SCRIPT % (jxa.literal(handle.name), jxa.literal(name)))
+        script = SCRIPT % (
+            jxa.literal(handle.name),
+            jxa.literal(name),
+            document_id,
+        )
+        return jxa.run_json(script)
 
 
 def from_dump(document: dict) -> dict:

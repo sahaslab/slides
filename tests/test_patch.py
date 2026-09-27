@@ -68,6 +68,37 @@ def test_table_writes_are_bounded_by_the_live_cell_count():
     assert "c < slide.tables[t].rows[r].cells.length" in patch.SCRIPT
 
 
+def test_script_contains_the_byid_branch():
+    # JXA only; exercised for real by the controller's live-app check.
+    assert "app.documents.byId(documentId)" in patch.SCRIPT
+    assert "No open document with id " in patch.SCRIPT
+
+
+def test_without_a_document_id_the_front_document_is_targeted(monkeypatch):
+    captured = {}
+
+    def fake_run_json(script: str) -> dict:
+        captured["script"] = script
+        return {"updated": 1, "skipped": []}
+
+    monkeypatch.setattr(jxa, "run_json", fake_run_json)
+    patch.apply({"1": {"title": "x"}})
+    assert "var documentId = null;" in captured["script"]
+    assert "doc = app.documents[0];" in captured["script"]
+
+
+def test_a_document_id_selects_that_document_by_id(monkeypatch):
+    captured = {}
+
+    def fake_run_json(script: str) -> dict:
+        captured["script"] = script
+        return {"updated": 1, "skipped": []}
+
+    monkeypatch.setattr(jxa, "run_json", fake_run_json)
+    patch.apply({"1": {"title": "x"}}, document="doc-123")
+    assert "var documentId = \"doc-123\";" in captured["script"]
+
+
 def test_from_dump_takes_only_title_and_notes():
     document = {
         "slides": [
