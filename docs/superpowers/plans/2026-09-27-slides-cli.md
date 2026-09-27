@@ -3182,6 +3182,42 @@ git commit -m "feat: DeckWerk importer wrapper and convert -f deckwerk"
 
 Geometry is used when the reader supplied it, which is the DeckWerk case; otherwise a title-and-body fallback. Points convert to EMU at 12700 per point, matching the reader.
 
+**Amendments (controller, after Tasks 3, 11 and 20 met real decks).** The code
+below predates them; where they conflict, these win.
+
+1. **Text must be legible on the painted background.** The code paints
+   `slide.background` and leaves text at the template default, black, so a
+   dark deck converts to black-on-slate. Extract the deck's theme once with
+   `slides.theme.extract(deck)` and colour every run `theme.foreground`.
+   Titles take `theme.accents[0]` only when that clears 4.5:1 against the
+   background, and the foreground otherwise.
+2. **Font sizes scale with the canvas.** Canvas units are points (1920 x 1080
+   is Keynote's own size), so 24pt body text on a 1920pt-wide slide is a
+   caption. Size titles at `deck.height * 0.06` and body at
+   `deck.height * 0.036` points (65 and 39 at 1080), and tables at the body
+   size times 0.7. Fonts: the first family name of the theme's title and body
+   stacks (the same CSS-stack splitting as `slides.emit.matplotlib`; import
+   its helper rather than writing a second one).
+3. **Images are written.** `Slide.images` is ignored by the code below; the
+   real deck has 30. Resolve each `Image.path` against `deck.source` (a folder
+   for DeckWerk) and add it as a picture at its geometry, falling back to a
+   centred box. A path that does not resolve to a file is skipped with one
+   stderr line, and the conversion continues.
+4. **Interactive demos and video survive as links.** Each `Embed` becomes its
+   poster image when `Embed.poster` resolves to a file, else a text box
+   labelled as the Markdown writer labels it (`Interactive: <title>` /
+   `Video: <title>`), placed at the embed's geometry, with a click hyperlink
+   to the absolute `file://` URL of the embed's `src`. A deck converted to
+   pptx or Keynote then keeps a working link to every demo.
+5. **Style.** One parameter per line in every multi-parameter signature;
+   `target` is annotated `"pptx.slide.Slide"` as in the pptx reader.
+
+Tests to add alongside the three below: body text is coloured the theme
+foreground on a dark background; an image in the fixture (the DeckWerk
+fixture has one) comes back from the pptx reader as an `Image`; a web embed
+produces a shape whose click hyperlink ends in its `src`; font size scales
+with the canvas.
+
 - [ ] **Step 1: Write the failing test**
 
 ```python
@@ -3383,6 +3419,31 @@ git commit -m "feat: pptx writer and convert -f pptx"
   - `slides.keynote.export.SCRIPT_SAVE`, `SCRIPT_PDF` — the JXA templates, exposed so they can be tested without running Keynote
 
 The DeckWerk → Keynote route is DeckWerk → pptx → Keynote, per the spec. Only the final save needs the app.
+
+**Amendments (controller, after Task 16's review).** The code below predates
+them; where they conflict, these win.
+
+1. **Never close a document the user had open.** `app.open(path)` on a file
+   Keynote already has open returns the user's own document, and the script
+   then closes it with `saving: "no"`, discarding their unsaved edits. This is
+   the worst failure the tool could have. Before opening, the script records
+   whether a document with that file path is already open (compare
+   `doc.file().toString()` with the resolved path). If it was, it exports from
+   that document and leaves it open; only a document the script opened itself
+   is closed. `SCRIPT_SAVE` never saves over the source.
+2. **Quoting goes through `jxa.literal`** (`json.dumps`), shared by every JXA
+   template since Task 16's fix. Delete this task's `_quoted`.
+3. **Staging is cleaned up.** Use `tempfile.TemporaryDirectory()` as a
+   context manager around the pptx staging and the app call, rather than
+   `mkdtemp` directories that are never removed.
+4. The script's return literal `"savedn"` is a typo for `"saved"`.
+5. **Style.** One parameter per line in every multi-parameter signature;
+   annotate `source`/`out` as `str | pathlib.Path`; the tests' single-quoted
+   literals become double-quoted.
+
+Test to add: the already-open guard is present in both templates, and the
+close is conditional on it (the template text is the only thing testable
+without the app; the real check is the controller's live run).
 
 - [ ] **Step 1: Write the failing test**
 
