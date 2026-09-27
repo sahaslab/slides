@@ -2,6 +2,7 @@ import os
 import pathlib
 import zipfile
 import pytest
+from slides.color import to_oklch
 from slides.readers.keynote_file import clean, read
 
 REAL = pathlib.Path(os.path.expanduser(
@@ -62,3 +63,22 @@ def test_reads_a_directory_bundle_identically(tmp_path):
     with zipfile.ZipFile(REAL) as archive:
         archive.extractall(bundle)
     assert len(read(bundle).slides) == len(read(REAL).slides)
+
+
+@needs_real
+def test_background_and_text_colours_reflect_actual_usage():
+    deck = read(REAL)
+    with_background = [s for s in deck.slides if s.background == "#0d1e1c"]
+    assert len(with_background) >= len(deck.slides) - 2
+
+    chromatic = [
+        c for c in deck.colors
+        if c.kind == "text" and to_oklch(c.hex)[1] >= 0.05
+    ]
+    assert chromatic
+    heaviest = max(chromatic, key=lambda c: c.weight)
+    assert heaviest.hex == "#a5d75f"
+
+    by_hex = {c.hex: c.weight for c in deck.colors}
+    for flat in ("#000000", "#f9f9f9"):
+        assert by_hex.get(flat, 0.0) < heaviest.weight
