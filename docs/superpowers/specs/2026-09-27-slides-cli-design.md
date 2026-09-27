@@ -72,7 +72,8 @@ open.
 
 Emits Markdown (default), JSON, or plain text; `--notes-only` restricts output to
 presenter notes numbered by slide. `--clipboard` copies instead of printing.
-`--out-dir` writes one file per input for batch runs.
+`--out-dir` writes one file per input for batch runs. `--assets-dir` names the
+sidecar folder for interactive demos; `--copy-media` includes video files.
 
 Markdown shape follows keydump: `# Deck`, `## Slide N`, `### Title`, body text as
 bullets, tables as pipe tables, presenter notes as blockquotes. Body text items
@@ -83,6 +84,43 @@ JSON is the structured form — per-slide title, text items, tables, notes, and
 geometry where the reader can supply it. It is deliberately the same shape
 `slides patch` consumes, so a deck can be dumped, edited programmatically, and
 applied back.
+
+### Interactive demos, video and fallback tables
+
+A deck is not only text. DeckWerk decks carry `web` elements (a complete,
+self-contained HTML page shown in a sandboxed frame — a playground, a live
+Python REPL), `video` elements, and `html` elements, which are the importer's
+fallback for content it could not convert natively and which in practice hold
+**tables**. A dump that silently drops all three turns an interactive slide
+into a blank one.
+
+So `dump` handles each:
+
+- **`web`** — the page is copied out beside the dump as a self-contained file,
+  and the slide gets a link to it. The pages are already self-contained by
+  construction: DeckWerk stages them under `assets/web/` to run in an
+  `<iframe sandbox>` with no access to the deck, so copying the file is
+  enough. A dump of a lecture deck therefore yields a folder of working demos
+  next to the Markdown, openable in any browser.
+- **`video`** — linked, not copied. Video files are large and already on disk;
+  the link points at the source. `--copy-media` copies them too.
+- **`html`** — parsed. When the markup is a table, it becomes a real `Table`
+  and renders as a pipe table like any other. Otherwise its text is extracted.
+
+The sidecar directory is named after the output file (`talk.md` →
+`talk_assets/`) or given by `--assets-dir`. Dumping to stdout copies nothing
+and links to the paths inside the deck, because there is no output location to
+copy beside; `dump` says so on stderr rather than silently producing dead
+links.
+
+Markdown shape:
+
+    ### Try it: fit line by hand
+
+    [Interactive: Least-squares playground](talk_assets/playground.html)
+
+JSON carries the same information structurally, under an `embeds` key, so a
+caller can find every demo in a deck without parsing Markdown.
 
 ### `slides convert`
 
@@ -203,7 +241,7 @@ consumes it. Four readers and four writers become eight pieces instead of
 sixteen, and the model is the thing that makes the package worth importing.
 
     slides/
-      model.py          Deck, Slide, TextItem, Table, Image, Notes  (dataclasses)
+      model.py          Deck, Slide, TextItem, Table, Image, Embed  (dataclasses)
       readers/
         keynote_file.py   .key, headless, via keynote-parser
         keynote_live.py   front document, via Apple Events
