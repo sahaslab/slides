@@ -73,4 +73,5 @@ def _slide(number: int, raw: dict) -> Slide:
 
 
 def _quoted(name: str) -> str:
-    return "\"%s\"" % (name.replace("\"", "\\\""),)
+    escaped = name.replace("\\", "\\\\").replace("\"", "\\\"")
+    return "\"%s\"" % (escaped,)
