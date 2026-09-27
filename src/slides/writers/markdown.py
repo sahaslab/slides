@@ -1,4 +1,5 @@
-from slides.model import Deck, Slide
+import pathlib
+from slides.model import Deck, Embed, Slide
 
 
 def render(
@@ -25,6 +26,8 @@ def _slide(slide: Slide) -> str:
         parts.append(_bullets(item.text))
     for table in slide.tables:
         parts.append(_table(table.rows))
+    for embed in slide.embeds:
+        parts.append("%s\n" % (_link(embed),))
     if slide.notes.strip():
         parts.append(_quote(slide.notes))
     return "\n".join(parts)
@@ -50,6 +53,12 @@ def _row(
 ) -> str:
     padded = list(cells) + [""] * (width - len(cells))
     return "|%s" % ("".join(" %s |" % (str(c).strip(),) for c in padded),)
+
+
+def _link(embed: Embed) -> str:
+    name = embed.title or pathlib.PurePosixPath(embed.src).name
+    label = "Interactive" if embed.kind == "web" else "Video"
+    return "[%s: %s](%s)" % (label, name, embed.src)
 
 
 def _quote(notes: str) -> str:

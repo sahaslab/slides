@@ -9,7 +9,7 @@ def test_reads_deck_metadata():
     assert deck.title == "Mini"
     assert (deck.width, deck.height) == (1920.0, 1080.0)
     assert deck.kind == "deckwerk"
-    assert len(deck.slides) == 2
+    assert len(deck.slides) == 3
 
 
 def test_first_element_by_z_and_position_becomes_the_title():

@@ -2,7 +2,7 @@ import re
 import json
 import pathlib
 from html.parser import HTMLParser
-from slides.model import ColorUse, Deck, Image, Slide, Table, TextItem
+from slides.model import ColorUse, Deck, Embed, Image, Slide, Table, TextItem
 
 BREAK_TAGS = {"br", "p", "div", "li", "tr"}
 RGB = re.compile(r"rgb\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)")
@@ -25,6 +25,30 @@ class _Stripper(HTMLParser):
     def handle_endtag(self, tag: str) -> None:
         if tag in BREAK_TAGS and self.parts:
             self.parts.append("\n")
+
+
+class _TableParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.rows: list[list[str]] = []
+        self._cell: list[str] | None = None
+        self._text: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list) -> None:
+        if tag == "tr":
+            self._cell = []
+        elif tag in ("td", "th"):
+            self._text = []
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in ("td", "th") and self._cell is not None:
+            self._cell.append("".join(self._text).strip())
+        elif tag == "tr" and self._cell is not None:
+            self.rows.append(self._cell)
+            self._cell = None
+
+    def handle_data(self, data: str) -> None:
+        self._text.append(data)
 
 
 def strip_html(markup: str) -> str:
@@ -112,10 +136,37 @@ def _slide(number: int, raw: dict, colors: dict) -> Slide:
                 value = element.get(key)
                 if isinstance(value, str):
                     _add_color(colors, value, "fill", 0.5)
+        elif kind in ("web", "video"):
+            slide.embeds.append(Embed(
+                kind=kind,
+                src=element.get("src") or "",
+                title=element.get("title"),
+                poster=element.get("poster"),
+                x=_number(element.get("x")),
+                y=_number(element.get("y")),
+                w=_number(element.get("w")),
+                h=_number(element.get("h")),
+            ))
+        elif kind == "html":
+            rows = _html_table(element.get("html") or "")
+            if rows:
+                slide.tables.append(Table(rows=rows))
     if slide.items:
         slide.title = slide.items[0].text
         slide.items[0].role = "title"
     return slide
+
+
+def _number(value: object) -> float | None:
+    if value is None:
+        return None
+    return float(value)
+
+
+def _html_table(markup: str) -> list[list[str]]:
+    parser = _TableParser()
+    parser.feed(markup)
+    return parser.rows
 
 
 def _colors_in(markup: str) -> list[str]:

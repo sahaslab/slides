@@ -27,6 +27,18 @@ class Image:
 
 
 @dataclass
+class Embed:
+    kind: str
+    src: str
+    title: str | None = None
+    poster: str | None = None
+    x: float | None = None
+    y: float | None = None
+    w: float | None = None
+    h: float | None = None
+
+
+@dataclass
 class ColorUse:
     hex: str
     weight: float
@@ -40,6 +52,7 @@ class Slide:
     items: list[TextItem] = field(default_factory=list)
     tables: list[Table] = field(default_factory=list)
     images: list[Image] = field(default_factory=list)
+    embeds: list[Embed] = field(default_factory=list)
     notes: str = ""
     background: str | None = None
 
