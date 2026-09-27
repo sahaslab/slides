@@ -1,5 +1,6 @@
 import os
 import pathlib
+import tempfile
 import pytest
 from slides.deckwerk import importer
 
@@ -45,6 +46,17 @@ def test_interpreter_prefers_the_import_venv(tmp_path):
 def test_interpreter_falls_back_to_our_own(tmp_path):
     import sys
     assert importer.interpreter(tmp_path) == sys.executable
+
+
+def test_read_via_import_cleans_up_its_staging_dir_on_failure(monkeypatch):
+    def fail(*args: object, **kwargs: object) -> dict:
+        raise importer.ImporterFailed("boom")
+
+    monkeypatch.setattr(importer, "import_key", fail)
+    with pytest.raises(importer.ImporterFailed):
+        importer.read_via_import("whatever.key")
+    leftovers = list(pathlib.Path(tempfile.gettempdir()).glob("slides-import-*"))
+    assert leftovers == []
 
 
 @needs_deckwerk

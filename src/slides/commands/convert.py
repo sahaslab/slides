@@ -19,6 +19,9 @@ def _to_deckwerk(
     source: pathlib.Path
 ) -> int:
     out = pathlib.Path(args.output) if args.output else source.with_suffix("")
+    if out.exists() and (out.is_file() or any(out.iterdir())):
+        sys.stderr.write("%s already exists; pass -o with a new folder\n" % (out,))
+        return 1
     result = importer.import_key(source, out, root=args.deckwerk_root)
     counts = result.get("report", {})
     sys.stderr.write("Imported %s -> %s\n" % (source.name, out))
