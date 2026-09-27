@@ -8,6 +8,11 @@ BREAK_TAGS = {"br", "p", "div", "li", "tr"}
 RGB = re.compile(r"rgb\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)")
 HEX = re.compile(r"#([0-9a-fA-F]{6})\b")
 SLIDE_NUMBER_MARKER = "data-slide-number"
+TITLE_ROLE_CLASS = "role-title"
+CSS_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
+CSS_BLOCK = re.compile(r"([^{}]+)\{([^{}]*)\}")
+CSS_DECLARATION = re.compile(r"([a-zA-Z-]+)\s*:\s*([^;]+)")
+ROOT_SELECTOR = ".slide"
 
 
 class _Stripper(HTMLParser):
@@ -39,6 +44,8 @@ class _TableParser(HTMLParser):
             self._cell = []
         elif tag in ("td", "th"):
             self._text = []
+        elif tag == "br":
+            self._text.append(" ")
 
     def handle_endtag(self, tag: str) -> None:
         if tag in ("td", "th") and self._cell is not None:
@@ -74,6 +81,7 @@ def read(path: str | pathlib.Path) -> Deck:
     colors: dict[tuple[str, str], float] = {}
     for number, raw in enumerate(data.get("slides", []), start=1):
         deck.slides.append(_slide(number, raw, colors))
+    _harvest_theme_colors(colors, _theme_rules(root, data), deck.slides)
     deck.colors = [
         ColorUse(hex=key[0], weight=weight, kind=key[1])
         for key, weight in sorted(colors.items(), key=lambda kv: -kv[1])
@@ -91,18 +99,19 @@ def _fonts(data: dict) -> dict[str, str]:
 
 
 def _slide(number: int, raw: dict, colors: dict) -> Slide:
-    background = raw.get("background")
-    if isinstance(background, str):
+    background = _background(raw)
+    if background:
         _add_color(colors, background, "background", 10.0)
     slide = Slide(
         number=number,
         notes=raw.get("notes") or "",
-        background=background if isinstance(background, str) else None,
+        background=background,
     )
     elements = sorted(
         raw.get("elements", []),
         key=lambda e: (e.get("y", 0.0), e.get("z", 0.0)),
     )
+    title_item: TextItem | None = None
     for element in elements:
         kind = element.get("type")
         if kind == "text":
@@ -114,13 +123,16 @@ def _slide(number: int, raw: dict, colors: dict) -> Slide:
                 continue
             for value in _colors_in(markup):
                 _add_color(colors, value, "text", 1.0)
-            slide.items.append(TextItem(
+            item = TextItem(
                 text=text,
                 x=element.get("x"),
                 y=element.get("y"),
                 w=element.get("w"),
                 h=element.get("h"),
-            ))
+            )
+            slide.items.append(item)
+            if title_item is None and _is_title(element):
+                title_item = item
         elif kind == "image":
             slide.images.append(Image(
                 path=element.get("src"),
@@ -148,13 +160,44 @@ def _slide(number: int, raw: dict, colors: dict) -> Slide:
                 h=_number(element.get("h")),
             ))
         elif kind == "html":
-            rows = _html_table(element.get("html") or "")
+            markup = element.get("html") or ""
+            rows = _html_table(markup)
             if rows:
                 slide.tables.append(Table(rows=rows))
-    if slide.items:
-        slide.title = slide.items[0].text
-        slide.items[0].role = "title"
+            elif SLIDE_NUMBER_MARKER not in markup:
+                text = strip_html(markup)
+                if text:
+                    slide.items.append(TextItem(
+                        text=text,
+                        x=element.get("x"),
+                        y=element.get("y"),
+                        w=element.get("w"),
+                        h=element.get("h"),
+                    ))
+    chosen = title_item or (slide.items[0] if slide.items else None)
+    if chosen is not None:
+        slide.title = chosen.text
+        chosen.role = "title"
     return slide
+
+
+def _is_title(element: dict) -> bool:
+    if element.get("morphId") == "title":
+        return True
+    return TITLE_ROLE_CLASS in (element.get("class") or [])
+
+
+def _background(raw: dict) -> str | None:
+    value = raw.get("background")
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        if value.get("image"):
+            return None
+        color_value = value.get("color")
+        if isinstance(color_value, str):
+            return color_value
+    return None
 
 
 def _number(value: object) -> float | None:
@@ -184,3 +227,45 @@ def _add_color(colors: dict, value: str, kind: str, weight: float) -> None:
     else:
         normalised = "#%02x%02x%02x" % tuple(int(g) for g in match.groups())
     colors[(normalised, kind)] = colors.get((normalised, kind), 0.0) + weight
+
+
+def _theme_rules(root: pathlib.Path, data: dict) -> dict[str, dict[str, str]]:
+    path = root / (data.get("theme") or "theme.css")
+    if not path.exists():
+        return {}
+    text = CSS_COMMENT.sub("", path.read_text())
+    rules: dict[str, dict[str, str]] = {}
+    for selector, body in CSS_BLOCK.findall(text):
+        selector = selector.strip()
+        if not selector:
+            continue
+        declarations = rules.setdefault(selector, {})
+        for prop, value in CSS_DECLARATION.findall(body):
+            declarations[prop.strip().lower()] = value.strip()
+    return rules
+
+
+def _harvest_theme_colors(
+    colors: dict,
+    rules: dict[str, dict[str, str]],
+    slides: list[Slide]
+) -> None:
+    # The root .slide rule is the base every slide's text inherits, so its
+    # `color` is weighted by the slide count; its `background` only counts
+    # for slides that set none of their own, and not at all when there are
+    # none. Every other rule's declarations get a flat weight of 1.
+    root_declarations = rules.get(ROOT_SELECTOR, {})
+    bare_count = sum(1 for slide in slides if not slide.background)
+    for prop, value in root_declarations.items():
+        if prop == "color":
+            _add_color(colors, value, "text", float(len(slides)))
+        elif prop in ("background", "background-color") and bare_count:
+            _add_color(colors, value, "background", float(bare_count))
+    for selector, declarations in rules.items():
+        if selector == ROOT_SELECTOR:
+            continue
+        for prop, value in declarations.items():
+            if prop == "color":
+                _add_color(colors, value, "text", 1.0)
+            elif prop in ("background", "background-color"):
+                _add_color(colors, value, "fill", 1.0)
