@@ -1,5 +1,5 @@
-import sys
 import argparse
+import importlib
 
 
 def main():
@@ -8,7 +8,7 @@ def main():
     if args.command is None:
         parser.print_help()
         return 2
-    return DISPATCH[args.command](args)
+    return dispatch(args)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -23,6 +23,8 @@ def build_parser() -> argparse.ArgumentParser:
     dump.add_argument("--notes-only", action="store_true")
     dump.add_argument("--clipboard", action="store_true")
     dump.add_argument("--via-deckwerk", action="store_true")
+    dump.add_argument("--assets-dir", default=None)
+    dump.add_argument("--copy-media", action="store_true")
 
     convert = sub.add_parser("convert")
     convert.add_argument("target")
@@ -64,20 +66,10 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def not_implemented(args: argparse.Namespace) -> int:
-    sys.stderr.write("%s is not implemented yet\n" % (args.command,))
-    return 1
+def dispatch(args: argparse.Namespace) -> int:
+    command = importlib.import_module("slides.commands.%s" % (args.command,))
+    return command.run(args)
 
-
-DISPATCH = {
-    "dump": not_implemented,
-    "convert": not_implemented,
-    "scaffold": not_implemented,
-    "patch": not_implemented,
-    "math": not_implemented,
-    "theme": not_implemented,
-    "info": not_implemented,
-}
 
 if __name__ == "__main__":
     raise SystemExit(main())

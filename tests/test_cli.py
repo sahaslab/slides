@@ -1,7 +1,9 @@
 import sys
+import types
+import argparse
 import subprocess
 from slides import __version__
-from slides.cli import build_parser
+from slides.cli import build_parser, dispatch
 
 
 def test_version_is_set():
@@ -29,3 +31,10 @@ def test_help_does_not_import_heavy_dependencies():
         check=True,
     )
     assert out.stdout.strip() == ""
+
+
+def test_dispatch_runs_the_command_module(monkeypatch):
+    module = types.ModuleType("slides.commands.info")
+    module.run = lambda args: 7
+    monkeypatch.setitem(sys.modules, "slides.commands.info", module)
+    assert dispatch(argparse.Namespace(command="info")) == 7

@@ -174,8 +174,8 @@ __version__ = "0.1.0"
 Note the `main()`-at-top ordering and the absence of a parser `description`.
 
 ```python
-import sys
 import argparse
+import importlib
 
 
 def main():
@@ -184,7 +184,7 @@ def main():
     if args.command is None:
         parser.print_help()
         return 2
-    return DISPATCH[args.command](args)
+    return dispatch(args)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -242,20 +242,10 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def not_implemented(args: argparse.Namespace) -> int:
-    sys.stderr.write("%s is not implemented yet\n" % (args.command,))
-    return 1
+def dispatch(args: argparse.Namespace) -> int:
+    command = importlib.import_module("slides.commands.%s" % (args.command,))
+    return command.run(args)
 
-
-DISPATCH = {
-    "dump": not_implemented,
-    "convert": not_implemented,
-    "scaffold": not_implemented,
-    "patch": not_implemented,
-    "math": not_implemented,
-    "theme": not_implemented,
-    "info": not_implemented,
-}
 
 if __name__ == "__main__":
     raise SystemExit(main())
@@ -1042,7 +1032,6 @@ git commit -m "feat: markdown, text and JSON writers"
 
 **Files:**
 - Create: `src/slides/commands/__init__.py`, `src/slides/commands/dump.py`
-- Modify: `src/slides/cli.py` (replace `not_implemented` for `"dump"` in `DISPATCH`)
 - Test: `tests/test_dump.py`
 
 **Interfaces:**
@@ -1203,26 +1192,9 @@ def _destination(args: argparse.Namespace, deck) -> pathlib.Path | None:
 
 Write `src/slides/commands/__init__.py` as an empty file.
 
-- [ ] **Step 4: Wire it into `src/slides/cli.py`**
+- [ ] **Step 4: Nothing to wire**
 
-Replace the `"dump"` entry in `DISPATCH`. The import goes inside the wrapper so `--help` stays cheap.
-
-```python
-def _dump(args: argparse.Namespace) -> int:
-    from slides.commands import dump
-    return dump.run(args)
-
-
-DISPATCH = {
-    "dump": _dump,
-    "convert": not_implemented,
-    "scaffold": not_implemented,
-    "patch": not_implemented,
-    "math": not_implemented,
-    "theme": not_implemented,
-    "info": not_implemented,
-}
-```
+No `cli.py` change is needed: `slides.cli.dispatch` imports `slides.commands.dump` on demand and calls its `run(args)`, so `--help` stays cheap without a per-command wrapper.
 
 - [ ] **Step 5: Run tests to verify they pass**
 
@@ -1239,7 +1211,7 @@ Expected: a Markdown dump. Time it — it should return in well under a second.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/slides/commands src/slides/cli.py tests/test_dump.py
+git add src/slides/commands tests/test_dump.py
 git commit -m "feat: slides dump"
 ```
 
@@ -1928,7 +1900,6 @@ git commit -m "feat: pptx reader"
 
 **Files:**
 - Create: `src/slides/commands/info.py`
-- Modify: `src/slides/cli.py`
 - Test: `tests/test_info.py`
 
 **Interfaces:**
@@ -2021,15 +1992,9 @@ def _plural(count: int, singular: str, plural: str | None = None) -> str:
     return "%d %s" % (count, plural or (singular + "s"))
 ```
 
-- [ ] **Step 4: Wire into `src/slides/cli.py`**
+- [ ] **Step 4: Nothing to wire**
 
-```python
-def _info(args: argparse.Namespace) -> int:
-    from slides.commands import info
-    return info.run(args)
-```
-
-and set `"info": _info` in `DISPATCH`.
+No `cli.py` change is needed: `slides.cli.dispatch` imports `slides.commands.info` on demand and calls its `run(args)`, so `--help` stays cheap without a per-command wrapper.
 
 - [ ] **Step 5: Run tests to verify they pass**
 
@@ -2039,7 +2004,7 @@ Expected: 3 passed
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/slides/commands/info.py src/slides/cli.py tests/test_info.py
+git add src/slides/commands/info.py tests/test_info.py
 git commit -m "feat: slides info"
 ```
 
@@ -2591,7 +2556,6 @@ git commit -m "feat: perceptual palette extraction and role inference"
 
 **Files:**
 - Create: `src/slides/emit/__init__.py`, `src/slides/emit/matplotlib.py`, `src/slides/emit/ggplot.py`, `src/slides/emit/css.py`, `src/slides/commands/theme.py`
-- Modify: `src/slides/cli.py`
 - Test: `tests/test_emit.py`
 
 **Interfaces:**
@@ -2872,15 +2836,7 @@ def run(args: argparse.Namespace) -> int:
     return 0
 ```
 
-In `cli.py`:
-
-```python
-def _theme(args: argparse.Namespace) -> int:
-    from slides.commands import theme
-    return theme.run(args)
-```
-
-and set `"theme": _theme` in `DISPATCH`.
+No `cli.py` change is needed: `slides.cli.dispatch` imports `slides.commands.theme` on demand and calls its `run(args)`, so `--help` stays cheap without a per-command wrapper.
 
 - [ ] **Step 8: Run tests to verify they pass**
 
@@ -2898,7 +2854,7 @@ Expected: the palette vector and `"theme" "gg"`. Skip this step if R is not inst
 - [ ] **Step 10: Commit**
 
 ```bash
-git add src/slides/emit src/slides/commands/theme.py src/slides/cli.py tests/test_emit.py
+git add src/slides/emit src/slides/commands/theme.py tests/test_emit.py
 git commit -m "feat: matplotlib, ggplot, CSS and JSON theme emitters"
 ```
 
@@ -2908,7 +2864,7 @@ git commit -m "feat: matplotlib, ggplot, CSS and JSON theme emitters"
 
 **Files:**
 - Create: `src/slides/deckwerk/__init__.py`, `src/slides/deckwerk/importer.py`, `src/slides/deckwerk/agent.py`, `src/slides/commands/convert.py`
-- Modify: `src/slides/cli.py`, `src/slides/commands/info.py`
+- Modify: `src/slides/commands/info.py`
 - Test: `tests/test_deckwerk_importer.py`
 
 **Interfaces:**
@@ -3176,15 +3132,9 @@ def _validation(args: argparse.Namespace) -> str:
 
 Add `import json` to that module's builtins block. This is the one place a `try/except` earns its keep: a missing DeckWerk checkout is expected on any machine but this one, and the whole point is to degrade rather than fail.
 
-- [ ] **Step 7: Wire `convert` into `cli.py`**
+- [ ] **Step 7: Nothing to wire**
 
-```python
-def _convert(args: argparse.Namespace) -> int:
-    from slides.commands import convert
-    return convert.run(args)
-```
-
-and set `"convert": _convert`.
+No `cli.py` change is needed: `slides.cli.dispatch` imports `slides.commands.convert` on demand and calls its `run(args)`, so `--help` stays cheap without a per-command wrapper.
 
 - [ ] **Step 8: Run tests to verify they pass**
 
@@ -3575,7 +3525,6 @@ git commit -m "feat: convert to keynote and pdf via the app"
 
 **Files:**
 - Create: `src/slides/keynote/patch.py`, `src/slides/commands/patch.py`
-- Modify: `src/slides/cli.py`
 - Test: `tests/test_patch.py`
 
 **Interfaces:**
@@ -3739,15 +3688,7 @@ def run(args: argparse.Namespace) -> int:
     return 0
 ```
 
-In `cli.py`:
-
-```python
-def _patch(args: argparse.Namespace) -> int:
-    from slides.commands import patch
-    return patch.run(args)
-```
-
-and set `"patch": _patch`.
+No `cli.py` change is needed: `slides.cli.dispatch` imports `slides.commands.patch` on demand and calls its `run(args)`, so `--help` stays cheap without a per-command wrapper.
 
 - [ ] **Step 5: Run tests to verify they pass**
 
@@ -3767,7 +3708,7 @@ Expected: `Updated 1 slides`, and the note comes back in the dump.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/slides/keynote/patch.py src/slides/commands/patch.py src/slides/cli.py tests/test_patch.py
+git add src/slides/keynote/patch.py src/slides/commands/patch.py tests/test_patch.py
 git commit -m "feat: slides patch"
 ```
 
@@ -3777,7 +3718,6 @@ git commit -m "feat: slides patch"
 
 **Files:**
 - Create: `src/slides/keynote/scaffold.py`, `src/slides/commands/scaffold.py`
-- Modify: `src/slides/cli.py`
 - Test: `tests/test_scaffold.py`
 
 **Interfaces:**
@@ -3916,15 +3856,7 @@ def run(args: argparse.Namespace) -> int:
     return 0
 ```
 
-In `cli.py`:
-
-```python
-def _scaffold(args: argparse.Namespace) -> int:
-    from slides.commands import scaffold
-    return scaffold.run(args)
-```
-
-and set `"scaffold": _scaffold`.
+No `cli.py` change is needed: `slides.cli.dispatch` imports `slides.commands.scaffold` on demand and calls its `run(args)`, so `--help` stays cheap without a per-command wrapper.
 
 - [ ] **Step 5: Run tests to verify they pass**
 
@@ -3947,7 +3879,7 @@ Expected: two slides appended to the front document with those titles, bodies an
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/slides/keynote/scaffold.py src/slides/commands/scaffold.py src/slides/cli.py tests/test_scaffold.py
+git add src/slides/keynote/scaffold.py src/slides/commands/scaffold.py tests/test_scaffold.py
 git commit -m "feat: slides scaffold"
 ```
 
@@ -3957,7 +3889,6 @@ git commit -m "feat: slides scaffold"
 
 **Files:**
 - Create: `src/slides/keynote/math.py`, `src/slides/commands/math.py`
-- Modify: `src/slides/cli.py`
 - Test: `tests/test_math.py`
 
 **Interfaces:**
@@ -4099,15 +4030,7 @@ def run(args: argparse.Namespace) -> int:
     return 0
 ```
 
-In `cli.py`:
-
-```python
-def _math(args: argparse.Namespace) -> int:
-    from slides.commands import math
-    return math.run(args)
-```
-
-and set `"math": _math`.
+No `cli.py` change is needed: `slides.cli.dispatch` imports `slides.commands.math` on demand and calls its `run(args)`, so `--help` stays cheap without a per-command wrapper.
 
 - [ ] **Step 6: Run tests to verify they pass**
 
@@ -4125,7 +4048,7 @@ Expected: Keynote opens it with no repair prompt, and the equations render as ty
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/slides/keynote/math.py src/slides/commands/math.py src/slides/cli.py tests/test_math.py
+git add src/slides/keynote/math.py src/slides/commands/math.py tests/test_math.py
 git commit -m "feat: slides math"
 ```
 
