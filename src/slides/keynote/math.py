@@ -307,11 +307,13 @@ def host_style(
     obj: dict,
     index: int
 ) -> str | None:
+    # An entry with no style continues the one before it; Keynote's own PDF
+    # export renders those paragraphs that way.
     style_id = None
     for entry in obj.get("tableParaStyle", {}).get("entries", []):
         if entry.get("characterIndex", 0) > index:
             break
-        style_id = entry.get("object", {}).get("identifier")
+        style_id = entry.get("object", {}).get("identifier", style_id)
     return style_id
 
 

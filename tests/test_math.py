@@ -84,6 +84,16 @@ def test_resolves_appearance_through_the_parent_chain() -> None:
     assert properties["tsdFill"] == {"color": WHITE}
 
 
+def test_a_paragraph_without_a_style_continues_the_one_before() -> None:
+    # Keynote's own PDF export renders such paragraphs in the previous style.
+    arch, obj = storage("first\nthen $x$", [0])
+    obj["tableParaStyle"]["entries"].append({"characterIndex": 6})
+    styles = {"p": {"charProperties": {"fontName": "Avenir", "fontSize": 40.0, "fontColor": WHITE}}}
+    added = math.convert_storage(arch, obj, "1", iter(["10", "11", "12", "13"]), styles, "99")
+    properties = added[1]["objects"][0][PROPERTIES]
+    assert (properties["fontName"], properties["fontSize"], properties["fontColor"]) == ("Avenir", 40.0, WHITE)
+
+
 def test_unresolved_appearance_falls_back_to_black() -> None:
     properties = math.text_properties(None, {})
     assert (properties["fontName"], properties["fontSize"]) == (math.FALLBACK_FONT, math.FALLBACK_SIZE)
@@ -163,6 +173,8 @@ def test_equations_take_their_host_paragraph_appearance(converted: Converted) ->
     display = equations["\\text{df}_t = |\\{d \\in D : t \\in d\\}|"]
     assert (display["fontName"], display["fontSize"]) == ("STIXTwoMath-Regular", 38.0)
     assert min(display["fontColor"][channel] for channel in "rgb") > 0.99
+    # Every host paragraph in this deck has a resolvable style, so none falls back.
+    assert all(properties["fontName"] != math.FALLBACK_FONT for properties in equations.values())
 
 
 @needs_real
