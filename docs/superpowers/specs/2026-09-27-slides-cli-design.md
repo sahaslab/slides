@@ -5,18 +5,19 @@ Design, 2026-09-27.
 ## Purpose
 
 One installed command, and one importable package, for every deck operation on
-this machine: turning Keynote lectures into DeckWerk decks, getting any deck out
-as text an agent can read, pushing work back toward Keynote, and the Keynote
-surgery currently scattered across one-off scripts in `Class/introml/scripts`.
+this machine: converting between Keynote, DeckWerk and PowerPoint, getting any
+deck out as text an agent can read, pushing work back toward Keynote, and the
+Keynote surgery that otherwise gets rewritten as a one-off script each time.
 
-The immediate driver is the COSC 3 lecture workflow — a folder of `.key`
-originals converted to DeckWerk decks, revised, and exported again — but nothing
-in the tool is course-specific. Course specifics stay in the
-`cosc3-deckwerk-lectures` skill and in each deck's own `scripts/`.
+The tool is general-purpose and long-lived. It carries no house style, no
+palette, no writing rules and no knowledge of any particular deck, course or
+project. Those belong in whatever is using it — a skill, a deck's own
+`scripts/`, a project repo. What lives here is the machinery: read a deck, write
+a deck, change a deck.
 
-Success: converting a lecture deck, dumping it to Markdown, and applying a batch
-of slide edits are each a single command that works without reading source; and
-every one of those operations is callable from Python with the same fidelity.
+Success: converting a deck, dumping it to Markdown, and applying a batch of slide
+edits are each a single command that works without reading source; and every one
+of those operations is callable from Python with the same fidelity.
 
 ## Constraints
 
@@ -24,6 +25,8 @@ every one of those operations is callable from Python with the same fidelity.
 - The CLI is a thin layer over the library; the library is the product.
 - Fast enough to sit in a loop: no heavy imports on paths that do not need them.
 - Never reimplement what DeckWerk already does well.
+- Nothing domain-specific. If a feature needs to know what a deck is *about*, it
+  does not belong here.
 
 ## What already exists
 
@@ -39,11 +42,12 @@ every one of those operations is callable from Python with the same fidelity.
 - **`keydump.applescript`**: dumps the front Keynote document to Markdown over
   Apple Events. Its two-phase design — one bulk extraction inside the `tell`
   block, all string work outside it — is a ~4x win and is carried forward.
-- **`Class/introml/scripts`**: mostly lecture content
-  (`build_final_deck_4/5.py`, `build_applied_lecture_dict.py`), which stays
-  behind. The reusable machinery is the keynote-parser round-trip, the
-  headless LaTeX→equation conversion, the JXA batch-apply pattern, and the
-  deck-theme matplotlib palette.
+- **Assorted one-off scripts** accumulated on this machine, from which four
+  pieces of reusable machinery are lifted: the keynote-parser
+  unpack/edit/repack round-trip, headless LaTeX→equation conversion, the
+  JXA batch-apply pattern (write a JSON spec, have JXA walk the open document
+  applying it), and deriving a matplotlib style from a deck's theme. Their
+  content — the actual slides, text and plots they built — stays behind.
 
 **DeckWerk → Keynote does not exist in any form and is inferred from the ground
 up here.**
@@ -66,8 +70,8 @@ open.
 ### `slides dump`
 
 Emits Markdown (default), JSON, or plain text; `--notes-only` restricts output to
-presenter notes numbered by slide. `--clipboard` reproduces the Raycast
-behaviour. `--out-dir` writes one file per input for batch runs.
+presenter notes numbered by slide. `--clipboard` copies instead of printing.
+`--out-dir` writes one file per input for batch runs.
 
 Markdown shape follows keydump: `# Deck`, `## Slide N`, `### Title`, body text as
 bullets, tables as pipe tables, presenter notes as blockquotes. Body text items
@@ -84,7 +88,7 @@ applied back.
 | From | To | How |
 | --- | --- | --- |
 | `.key` | `deckwerk` | wraps `import_keynote.py`, manages its venv, surfaces `--report` |
-| `deckwerk` | `pptx` | generalised from the per-deck `build_pptx.py` |
+| `deckwerk` | `pptx` | writes PowerPoint from the deck model |
 | `deckwerk` | `keynote` | via pptx, then Keynote opens and saves `.key` |
 | `.key` | `pptx`, `pdf` | via Keynote's own scriptable export |
 
@@ -96,25 +100,23 @@ because it is fully headless up to the final save and works today.
 
 One engine, two entry points. `patch` takes a JSON spec keyed by slide number
 with `title`, `body`, `notes`, `images` and `tables` fields, writes it to a temp
-file, and runs a JXA script that walks the open document applying it — the
-pattern from `apply_applied_lecture_update.js`, generalised.
+file, and runs a JXA script that walks the open document applying it.
 
-`scaffold` is `patch` preceded by slide creation: it opens a template `.key`
-(e.g. `REFERENCE.key`), creates slides from named masters, then applies the same
-spec. The output is a starting point to finish by hand, not a round-trip of a
-finished DeckWerk deck.
+`scaffold` is `patch` preceded by slide creation: it opens a template `.key`,
+creates slides from named masters, then applies the same spec. The output is a
+starting point to finish by hand, not a round-trip of a finished DeckWerk deck.
+The template is whatever `.key` the caller names; the tool ships none.
 
 ### `slides math`
 
-Headless LaTeX conversion, from `apply_headless_equations.py`: unpack the `.key`
-with keynote-parser, rewrite `$...$` and `$$...$$` inside text boxes as native
-Keynote equation objects, repack. Presenter notes (`KN.NoteArchive`) are skipped
-so speaker notes stay plain text. `--min-slide` protects leading slides; `-o`
-names the output, defaulting to a suffixed copy rather than in-place mutation.
+Headless LaTeX conversion: unpack the `.key` with keynote-parser, rewrite
+`$...$` and `$$...$$` inside text boxes as native Keynote equation objects,
+repack. Presenter notes (`KN.NoteArchive`) are skipped so speaker notes stay
+plain text. `--min-slide` protects leading slides; `-o` names the output,
+defaulting to a suffixed copy rather than in-place mutation.
 
-The live JXA route (Find → Cut → ⌥⌘E) from `convert_latex_to_keynote_math.py` is
-**out of scope**: it steals focus, it is slow, and the headless path covers the
-cases that matter.
+The live JXA route (Find → Cut → ⌥⌘E) is **out of scope**: it steals focus, it is
+slow, and the headless path covers the cases that matter.
 
 ### `slides info`
 
@@ -131,10 +133,23 @@ the target, because the importer's coverage report is printed, not persisted:
 
 ### `slides.figures`
 
-Library only, no command. The deck-theme matplotlib style — palette and
-`rcParams` — lifted from `generate_all_lecture_plots.py` so a deck's own
-`scripts/figures.py` can `from slides.figures import apply_deck_style` instead of
-copying forty lines of colour constants. The plots themselves stay per-lecture.
+Library only, no command. Plots that go on a deck should match the deck, and the
+deck already states its colours and fonts — in `theme.css` and `deck.json` for
+DeckWerk, in the theme for Keynote and PowerPoint. So this module *derives* a
+matplotlib style from a deck rather than hardcoding one:
+
+```python
+from slides import read_deck
+from slides.figures import deck_style
+
+with deck_style(read_deck("talk/")):
+    fig, ax = plt.subplots()
+    ...
+```
+
+It extracts background, text, muted-text, grid and a sequence of accent colours,
+maps them onto `rcParams`, and yields. A palette can be overridden or supplied
+outright for callers with no deck in hand. The tool ships no palette of its own.
 
 ## Architecture
 
@@ -158,7 +173,7 @@ sixteen, and the model is the thing that makes the package worth importing.
       deckwerk/
         importer.py       wraps import_keynote.py, manages its venv
         agent.py          wraps slide-agent
-      figures.py          deck-theme matplotlib style
+      figures.py          matplotlib style derived from a deck's theme
       cli.py              argparse subcommands, thin
 
 Library use:
@@ -167,7 +182,7 @@ Library use:
 from slides import read_deck
 from slides.writers import markdown
 
-deck = read_deck("04_sep28.key")
+deck = read_deck("talk.key")
 print(markdown.render(deck, notes_only=True))
 ```
 
@@ -177,10 +192,9 @@ by construction.
 ### Reading `.key` headlessly
 
 Two routes, with a deliberate default. Walking the keynote-parser YAML directly
-is fast, depends only on keynote-parser, and is proven on these decks by
-`apply_headless_equations.py`. Running DeckWerk's importer into a temp directory
-and reading the resulting `deck.json` resolves masters, geometry and styling far
-better, but costs seconds per deck.
+is fast and depends only on keynote-parser. Running DeckWerk's importer into a
+temp directory and reading the resulting `deck.json` resolves masters, geometry
+and styling far better, but costs seconds per deck.
 
 The YAML walk is the default; `--via-deckwerk` selects the other when the fast
 path produces something wrong.
@@ -223,16 +237,17 @@ is offered rather than raised as an import error.
 
 pytest, test-first. Readers are tested against real fixture decks — a small
 `.key`, a `.pptx`, a DeckWerk folder — not mocks, because every bug worth catching
-here lives in real file structure. Writers are tested on a hand-built `Deck`.
-Round-trip tests assert that dump → patch-spec → apply preserves text.
+here lives in real file structure. Fixtures are minimal decks built for the
+purpose, committed to the repo, with no content from any real project. Writers
+are tested on a hand-built `Deck`. Round-trip tests assert that dump →
+patch-spec → apply preserves text.
 
 JXA paths get thin integration tests, skipped when Keynote is absent.
 
 ## Out of scope
 
 - The live JXA LaTeX conversion route.
-- Writing `.key` files directly with keynote-parser. `build_final_deck_5.py`
-  proves it is possible, but it is brittle across Keynote versions and the
-  pptx route covers the need.
-- The lecture content scripts in `Class/introml/scripts`.
-- Any course-specific styling or writing rules; those stay in the skill.
+- Writing `.key` files directly with keynote-parser. It is possible, but brittle
+  across Keynote versions, and the pptx route covers the need.
+- Any built-in palette, theme, template, or house style.
+- Anything that needs to know a deck's subject matter.
