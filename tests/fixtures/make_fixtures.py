@@ -1,6 +1,6 @@
 import pathlib
 import pptx
-from pptx.util import Inches, Pt
+from pptx.util import Inches
 
 
 def main():
