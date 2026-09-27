@@ -28,6 +28,7 @@ def test_collects_colors_with_roles():
     kinds = {c.hex: c.kind for c in deck.colors}
     assert kinds["#0d1e1c"] == "background"
     assert kinds["#a5d75f"] == "text"
+    assert kinds["#c86432"] == "fill"
 
 
 def test_reads_notes_tables_and_images():
@@ -35,6 +36,11 @@ def test_reads_notes_tables_and_images():
     assert deck.slides[0].notes == "Say hello."
     assert deck.slides[0].images[0].path == "assets/plot.png"
     assert deck.slides[1].tables[0].rows[0] == ["Model", "MSE"]
+
+
+def test_slide_number_field_produces_no_body_item():
+    deck = read(FIXTURE)
+    assert [i.text for i in deck.slides[1].items] == ["Numbers"]
 
 
 def test_strip_html_handles_entities_and_breaks():
