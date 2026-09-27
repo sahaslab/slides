@@ -6,6 +6,19 @@ library(ggplot2)
 
 deck_palette <- c(%(palette)s)
 
+deck_palette_at <- function(n) {
+    if (n > length(deck_palette)) {
+        msg <- sprintf(
+            "deck_palette has %%d colours but this scale needs %%d; regenerate with slides theme %(source)s -f ggplot --accents %%d",
+            length(deck_palette),
+            n,
+            n
+        )
+        stop(msg)
+    }
+    deck_palette[seq_len(n)]
+}
+
 theme_deck <- function(
     base_size = 12,
     base_family = "%(family)s"
@@ -34,7 +47,7 @@ theme_deck <- function(
 scale_colour_deck <- function(...) {
     discrete_scale(
         aesthetics = "colour",
-        palette = function(n) deck_palette[seq_len(n)],
+        palette = deck_palette_at,
         ...
     )
 }
@@ -44,7 +57,7 @@ scale_color_deck <- scale_colour_deck
 scale_fill_deck <- function(...) {
     discrete_scale(
         aesthetics = "fill",
-        palette = function(n) deck_palette[seq_len(n)],
+        palette = deck_palette_at,
         ...
     )
 }

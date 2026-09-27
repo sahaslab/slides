@@ -1,5 +1,5 @@
 import pytest
-from slides.emit import css, ggplot, render
+from slides.emit import css, fonts, ggplot, render
 from slides.emit import matplotlib as mpl
 from slides.theme import DeckTheme
 
@@ -83,6 +83,18 @@ def test_rc_params_falls_back_once_with_no_fonts():
     assert params["font.sans-serif"] == ["DejaVu Sans"]
 
 
+def test_split_stack_keeps_a_quoted_family_named_like_a_generic():
+    generic, names = fonts.split_stack("\"Serif\", Arial, sans-serif")
+    assert generic == "sans-serif"
+    assert names == ["Serif", "Arial", "DejaVu Sans"]
+
+
+def test_split_stack_defaults_to_sans_serif_without_a_bare_generic():
+    generic, names = fonts.split_stack("\"Serif\"")
+    assert generic == "sans-serif"
+    assert names == ["Serif", "DejaVu Sans"]
+
+
 def test_ggplot_emits_sourceable_r():
     out = ggplot.render(a_theme())
     assert "theme_deck <- function(" in out
@@ -96,6 +108,16 @@ def test_ggplot_emits_sourceable_r():
 def test_ggplot_defines_the_palette_once():
     out = ggplot.render(a_theme())
     assert out.count("deck_palette <- ") == 1
+
+
+def test_ggplot_palette_getter_fails_loudly_past_its_length():
+    out = ggplot.render(a_theme())
+    assert "deck_palette_at <- function(n) {" in out
+    assert "if (n > length(deck_palette)) {" in out
+    assert "deck_palette has %d colours but this scale needs %d" in out
+    assert "regenerate with slides theme talk/ -f ggplot --accents %d" in out
+    assert "palette = deck_palette_at" in out
+    assert "function(n) deck_palette[seq_len(n)]" not in out
 
 
 def test_ggplot_extracts_the_primary_family_from_a_css_stack():
