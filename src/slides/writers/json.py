@@ -34,6 +34,15 @@ def _slide(
         "body": [i.text for i in slide.body_items()],
         "tables": [t.rows for t in slide.tables],
         "images": [i.path for i in slide.images],
+        "embeds": [
+            {
+                "kind": e.kind,
+                "src": e.src,
+                "title": e.title,
+                "poster": e.poster,
+            }
+            for e in slide.embeds
+        ],
         "notes": slide.notes,
         "background": slide.background,
     }
