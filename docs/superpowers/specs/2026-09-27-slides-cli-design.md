@@ -81,9 +81,9 @@ are de-duplicated against the title, since Keynote's text items include the titl
 placeholder.
 
 JSON is the structured form — per-slide title, text items, tables, notes, and
-geometry where the reader can supply it. It is deliberately the same shape
-`slides patch` consumes, so a deck can be dumped, edited programmatically, and
-applied back.
+geometry where the reader can supply it. `slides patch` accepts it directly, so
+a deck's titles and notes can be dumped, edited programmatically, and applied
+back (see `patch` below for why only those two).
 
 ### Interactive demos, video and fallback tables
 
@@ -140,6 +140,13 @@ because it is fully headless up to the final save and works today.
 One engine, two entry points. `patch` takes a JSON spec keyed by slide number
 with `title`, `body`, `notes`, `images` and `tables` fields, writes it to a temp
 file, and runs a JXA script that walks the open document applying it.
+
+`patch` also accepts a `slides dump -f json` document. From a dump it applies
+`title` and `notes` only, and says so on stderr: those two each map onto exactly
+one thing on a slide, so writing them back is safe. A dump's `body` is every
+text box on the slide merged together, and writing it into the body placeholder
+would pull text out of the others; its `images` are paths that `patch` would
+add a second time. Those go through a patch spec, where the intent is explicit.
 
 `scaffold` is `patch` preceded by slide creation: it opens a template `.key`,
 creates slides from named masters, then applies the same spec. The output is a
