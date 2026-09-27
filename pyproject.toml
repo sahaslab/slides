@@ -1,0 +1,24 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "slides"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "keynote-parser>=1.14",
+    "python-pptx>=0.6.23",
+]
+
+[project.optional-dependencies]
+figures = ["matplotlib>=3.7"]
+
+[project.scripts]
+slides = "slides.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/slides"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
