@@ -18,10 +18,10 @@ def run(args: argparse.Namespace) -> int:
 
 
 def _extra(work: collections.abc.Callable[[], str]) -> None:
-    from slides.deckwerk.importer import DeckWerkError
+    from slides.deckwerk.importer import MissingDeckWerk
     try:
         sys.stdout.write(work())
-    except DeckWerkError as problem:
+    except MissingDeckWerk as problem:
         sys.stderr.write("%s\n" % (problem,))
 
 

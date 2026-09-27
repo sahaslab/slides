@@ -1,7 +1,6 @@
 import os
 import sys
 import json
-import shutil
 import pathlib
 import tempfile
 import subprocess
@@ -60,13 +59,12 @@ def report(
 
 def read_via_import(key: str | pathlib.Path) -> Deck:
     from slides.readers import deckwerk
-    staging = pathlib.Path(tempfile.mkdtemp(prefix="slides-import-"))
-    target = staging / "deck"
-    import_key(key, target)
-    deck = deckwerk.read(target)
+    with tempfile.TemporaryDirectory(prefix="slides-import-") as staging:
+        target = pathlib.Path(staging) / "deck"
+        import_key(key, target)
+        deck = deckwerk.read(target)
     deck.source = str(key)
     deck.kind = "keynote"
-    shutil.rmtree(staging, ignore_errors=True)
     return deck
 
 
