@@ -20,14 +20,24 @@ class _Stripper(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
 
-    def handle_data(self, data: str) -> None:
+    def handle_data(
+        self,
+        data: str
+    ) -> None:
         self.parts.append(data)
 
-    def handle_starttag(self, tag: str, attrs: list) -> None:
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list
+    ) -> None:
         if tag in BREAK_TAGS and self.parts:
             self.parts.append("\n")
 
-    def handle_endtag(self, tag: str) -> None:
+    def handle_endtag(
+        self,
+        tag: str
+    ) -> None:
         if tag in BREAK_TAGS and self.parts:
             self.parts.append("\n")
 
@@ -39,7 +49,11 @@ class _TableParser(HTMLParser):
         self._cell: list[str] | None = None
         self._text: list[str] = []
 
-    def handle_starttag(self, tag: str, attrs: list) -> None:
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list
+    ) -> None:
         if tag == "tr":
             self._cell = []
         elif tag in ("td", "th"):
@@ -47,14 +61,20 @@ class _TableParser(HTMLParser):
         elif tag == "br":
             self._text.append(" ")
 
-    def handle_endtag(self, tag: str) -> None:
+    def handle_endtag(
+        self,
+        tag: str
+    ) -> None:
         if tag in ("td", "th") and self._cell is not None:
             self._cell.append("".join(self._text).strip())
         elif tag == "tr" and self._cell is not None:
             self.rows.append(self._cell)
             self._cell = None
 
-    def handle_data(self, data: str) -> None:
+    def handle_data(
+        self,
+        data: str
+    ) -> None:
         self._text.append(data)
 
 
@@ -98,7 +118,11 @@ def _fonts(data: dict) -> dict[str, str]:
     }
 
 
-def _slide(number: int, raw: dict, colors: dict) -> Slide:
+def _slide(
+    number: int,
+    raw: dict,
+    colors: dict
+) -> Slide:
     background = _background(raw)
     if background:
         _add_color(colors, background, "background", 10.0)
@@ -218,7 +242,12 @@ def _colors_in(markup: str) -> list[str]:
     return found
 
 
-def _add_color(colors: dict, value: str, kind: str, weight: float) -> None:
+def _add_color(
+    colors: dict,
+    value: str,
+    kind: str,
+    weight: float
+) -> None:
     match = HEX.search(value) or RGB.search(value)
     if match is None:
         return
@@ -229,7 +258,10 @@ def _add_color(colors: dict, value: str, kind: str, weight: float) -> None:
     colors[(normalised, kind)] = colors.get((normalised, kind), 0.0) + weight
 
 
-def _theme_rules(root: pathlib.Path, data: dict) -> dict[str, dict[str, str]]:
+def _theme_rules(
+    root: pathlib.Path,
+    data: dict
+) -> dict[str, dict[str, str]]:
     path = root / (data.get("theme") or "theme.css")
     if not path.exists():
         return {}
