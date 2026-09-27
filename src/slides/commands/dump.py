@@ -74,16 +74,37 @@ def copy_embeds(
 ) -> dict[str, str]:
     root = pathlib.Path(deck.source)
     written: dict[str, str] = {}
+    used_names: set[str] = set()
     for slide in deck.slides:
         for embed in slide.embeds:
             if embed.kind == "video" and not copy_media:
+                continue
+            if embed.src in written:
                 continue
             source = root / embed.src
             if not source.exists():
                 sys.stderr.write("Missing asset: %s\n" % (source,))
                 continue
             destination.mkdir(parents=True, exist_ok=True)
-            target = destination / pathlib.Path(embed.src).name
+            name = _unique_name(pathlib.Path(embed.src).name, used_names)
+            used_names.add(name)
+            target = destination / name
             shutil.copyfile(source, target)
             written[embed.src] = str(target)
     return written
+
+
+def _unique_name(
+    name: str,
+    used: set[str]
+) -> str:
+    if name not in used:
+        return name
+    stem = pathlib.Path(name).stem
+    suffix = pathlib.Path(name).suffix
+    counter = 2
+    candidate = "%s-%d%s" % (stem, counter, suffix)
+    while candidate in used:
+        counter += 1
+        candidate = "%s-%d%s" % (stem, counter, suffix)
+    return candidate

@@ -2,11 +2,12 @@ import pathlib
 import shutil
 import argparse
 from slides.commands import dump
+from slides.model import Deck, Embed, Slide
 
 FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "mini_deckwerk"
 
 
-def an_args(**kw) -> argparse.Namespace:
+def an_args(**kw: object) -> argparse.Namespace:
     base = {
         "target": str(FIXTURE),
         "format": "md",
@@ -81,3 +82,45 @@ def test_a_missing_asset_is_reported_and_does_not_fail_the_dump(tmp_path):
     args = an_args(target=str(deck_dir), output=str(out))
     assert dump.run(args) == 0
     assert out.exists()
+
+
+def test_basename_collision_gets_a_unique_sidecar_name(tmp_path):
+    deck_dir = tmp_path / "deck"
+    (deck_dir / "assets" / "web" / "a").mkdir(parents=True)
+    (deck_dir / "assets" / "web" / "b").mkdir(parents=True)
+    (deck_dir / "assets" / "web" / "a" / "index.html").write_text("<p>A</p>")
+    (deck_dir / "assets" / "web" / "b" / "index.html").write_text("<p>B</p>")
+    deck = Deck(
+        title="Two demos",
+        source=str(deck_dir),
+        slides=[
+            Slide(number=1, embeds=[Embed(kind="web", src="assets/web/a/index.html")]),
+            Slide(number=2, embeds=[Embed(kind="web", src="assets/web/b/index.html")]),
+        ],
+    )
+    written = dump.copy_embeds(deck, tmp_path / "out_assets")
+    assert set(written) == {"assets/web/a/index.html", "assets/web/b/index.html"}
+    a_path = pathlib.Path(written["assets/web/a/index.html"])
+    b_path = pathlib.Path(written["assets/web/b/index.html"])
+    assert a_path != b_path
+    assert a_path.exists() and b_path.exists()
+    assert a_path.read_text() == "<p>A</p>"
+    assert b_path.read_text() == "<p>B</p>"
+
+
+def test_same_src_seen_twice_is_copied_once(tmp_path):
+    deck_dir = tmp_path / "deck"
+    (deck_dir / "assets" / "web").mkdir(parents=True)
+    (deck_dir / "assets" / "web" / "index.html").write_text("<p>Shared</p>")
+    deck = Deck(
+        title="Repeated demo",
+        source=str(deck_dir),
+        slides=[
+            Slide(number=1, embeds=[Embed(kind="web", src="assets/web/index.html")]),
+            Slide(number=2, embeds=[Embed(kind="web", src="assets/web/index.html")]),
+        ],
+    )
+    out_dir = tmp_path / "out_assets"
+    written = dump.copy_embeds(deck, out_dir)
+    assert written == {"assets/web/index.html": str(out_dir / "index.html")}
+    assert [p.name for p in out_dir.iterdir()] == ["index.html"]
