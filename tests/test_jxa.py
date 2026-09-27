@@ -1,10 +1,10 @@
-import os
 import shutil
 import pytest
 from slides.keynote import jxa
 
 has_osascript = pytest.mark.skipif(
-    shutil.which("osascript") is None, reason="not a Mac"
+    shutil.which("osascript") is None,
+    reason="not a Mac",
 )
 
 

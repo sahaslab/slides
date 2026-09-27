@@ -1,6 +1,12 @@
+import shutil
 import pytest
 from slides.keynote import jxa
 from slides.readers import keynote_live
+
+has_osascript = pytest.mark.skipif(
+    shutil.which("osascript") is None,
+    reason="not a Mac",
+)
 
 
 def test_reports_when_no_document_is_open(monkeypatch):
@@ -33,3 +39,17 @@ def test_builds_a_deck_from_the_payload(monkeypatch):
     assert deck.slides[0].title == "One"
     assert [i.text for i in deck.slides[0].body_items()] == ["Body text"]
     assert deck.slides[0].tables[0].rows[1] == ["1", "2"]
+
+
+@has_osascript
+def test_quoted_keeps_a_backslash_literal():
+    name = "back\\slash"
+    script = "JSON.stringify(%s)" % (keynote_live._quoted(name),)
+    assert jxa.run_json(script) == name
+
+
+@has_osascript
+def test_quoted_keeps_a_backslash_and_a_quote_literal():
+    name = "back\\slash \"quoted\""
+    script = "JSON.stringify(%s)" % (keynote_live._quoted(name),)
+    assert jxa.run_json(script) == name
