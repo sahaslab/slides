@@ -3,13 +3,18 @@ import pathlib
 import zipfile
 import pytest
 from slides.color import to_oklch
-from slides.readers.keynote_file import clean, read
+from slides.readers.keynote_file import _resolve_background, clean, read
 
 REAL = pathlib.Path(os.path.expanduser(
     "~/Desktop/Git/Class/introml/slides/drafts/early_term_2026/keynote"
     "/09_oct14_tfidf_imbalance_eval.key"
 ))
 needs_real = pytest.mark.skipif(not REAL.exists(), reason="no sample .key")
+
+REFERENCE = pathlib.Path(os.path.expanduser(
+    "~/Desktop/Git/Class/introml/slides/drafts/early_term_2026/keynote/REFERENCE.key"
+))
+needs_reference = pytest.mark.skipif(not REFERENCE.exists(), reason="no REFERENCE.key")
 
 
 def test_clean_strips_object_replacement_characters():
@@ -82,3 +87,59 @@ def test_background_and_text_colours_reflect_actual_usage():
     by_hex = {c.hex: c.weight for c in deck.colors}
     for flat in ("#000000", "#f9f9f9"):
         assert by_hex.get(flat, 0.0) < heaviest.weight
+
+
+def test_background_uses_the_slides_own_solid_fill():
+    index = {
+        "slide-style": {
+            "slideProperties": {
+                "fill": {"color": {"r": 1.0, "g": 0.0, "b": 0.0}},
+            },
+        },
+    }
+    raw = {"style": {"identifier": "slide-style"}}
+    assert _resolve_background(raw, index, {}) == "#ff0000"
+
+
+def test_background_is_none_for_an_image_fill_even_when_the_master_is_solid():
+    index = {
+        "slide-style": {
+            "slideProperties": {
+                "fill": {"image": {"identifier": "some-image"}},
+            },
+        },
+        "master-style": {
+            "slideProperties": {
+                "fill": {"color": {"r": 0.0, "g": 0.0, "b": 0.0}},
+            },
+        },
+        "master-slide": {"style": {"identifier": "master-style"}},
+    }
+    raw = {
+        "style": {"identifier": "slide-style"},
+        "templateSlide": {"identifier": "master-slide"},
+    }
+    assert _resolve_background(raw, index, {}) is None
+
+
+def test_background_falls_back_to_the_master_when_its_own_style_has_no_fill():
+    index = {
+        "slide-style": {"slideProperties": {}},
+        "master-style": {
+            "slideProperties": {
+                "fill": {"color": {"r": 0.0, "g": 1.0, "b": 0.0}},
+            },
+        },
+        "master-slide": {"style": {"identifier": "master-style"}},
+    }
+    raw = {
+        "style": {"identifier": "slide-style"},
+        "templateSlide": {"identifier": "master-slide"},
+    }
+    assert _resolve_background(raw, index, {}) == "#00ff00"
+
+
+@needs_reference
+def test_reference_deck_image_background_is_not_the_master_colour():
+    deck = read(REFERENCE)
+    assert deck.slides[0].background is None
