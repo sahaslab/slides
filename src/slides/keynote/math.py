@@ -56,11 +56,17 @@ def convert(
 
 # keynote-parser CLI
 
-def unpack_deck(key_path: str | pathlib.Path, unpack_dir: str | pathlib.Path) -> None:
+def unpack_deck(
+    key_path: str | pathlib.Path,
+    unpack_dir: str | pathlib.Path
+) -> None:
     run_parser("unpack", str(key_path), "-o", str(unpack_dir))
 
 
-def repack_deck(unpack_dir: str | pathlib.Path, out_path: str | pathlib.Path) -> None:
+def repack_deck(
+    unpack_dir: str | pathlib.Path,
+    out_path: str | pathlib.Path
+) -> None:
     run_parser("pack", str(unpack_dir), "-o", str(out_path))
 
 
@@ -75,7 +81,10 @@ def run_parser(*args: str) -> None:
 
 # Archive edits
 
-def process_presentation(unpack_dir: pathlib.Path, min_slide: int = 1) -> int:
+def process_presentation(
+    unpack_dir: pathlib.Path,
+    min_slide: int = 1
+) -> int:
     index_dir = unpack_dir / "Index"
     slide_map = get_slide_mapping(unpack_dir)
     targets = [
@@ -132,7 +141,10 @@ def get_slide_mapping(unpack_dir: pathlib.Path) -> dict[int, str | None]:
     return {number: node_to_slide.get(node) for number, node in enumerate(slide_nodes, start=1)}
 
 
-def convert_slide(slide_data: dict, ids: Iterator[str]) -> list[dict]:
+def convert_slide(
+    slide_data: dict,
+    ids: Iterator[str]
+) -> list[dict]:
     # Presenter notes stay plain text, so their storages are never touched.
     note_ids = note_storage_ids(slide_data)
     new_archives: list[dict] = []
@@ -186,12 +198,10 @@ def convert_storage(
         attach_id, eq_id, caption_id, title_id = next(ids), next(ids), next(ids), next(ids)
         obj_refs.append(attach_id)
         all_attachments.append({"characterIndex": curr_char_idx, "object": {"identifier": attach_id}})
-        new_archives.extend([
-            attachment_archive(attach_id, eq_id),
-            equation_archive(eq_id, caption_id, title_id, storage_id, eq_source),
-            caption_archive(caption_id),
-            caption_archive(title_id),
-        ])
+        new_archives.append(attachment_archive(attach_id, eq_id))
+        new_archives.append(equation_archive(eq_id, caption_id, title_id, storage_id, eq_source))
+        new_archives.append(caption_archive(caption_id))
+        new_archives.append(caption_archive(title_id))
         last_pos = end
     new_text_parts.append(full_text[last_pos:])
     obj["text"] = ["".join(new_text_parts)]
@@ -204,14 +214,20 @@ def convert_storage(
     return new_archives
 
 
-def remap_char_index(old_idx: int, shift_points: list[tuple[int, int]]) -> int:
+def remap_char_index(
+    old_idx: int,
+    shift_points: list[tuple[int, int]]
+) -> int:
     shift = sum(delta for pos, delta in shift_points if old_idx > pos)
     return max(0, old_idx + shift)
 
 
 # New archives
 
-def attachment_archive(attach_id: str, eq_id: str) -> dict:
+def attachment_archive(
+    attach_id: str,
+    eq_id: str
+) -> dict:
     return {
         "header": {
             "_pbtype": "TSP.ArchiveInfo",
@@ -327,7 +343,10 @@ def register_components(
     meta_path.write_text(yaml.safe_dump(meta), encoding="utf-8")
 
 
-def register_component(comp: dict, new_ids: list[str]) -> None:
+def register_component(
+    comp: dict,
+    new_ids: list[str]
+) -> None:
     comp["documentReadVersion"] = [4, 1, 0]
     comp["documentWriteVersion"] = [4, 1, 0]
     features = comp.setdefault("featureInfos", [])
@@ -341,7 +360,5 @@ def register_component(comp: dict, new_ids: list[str]) -> None:
         ext_refs.append({"componentIdentifier": STYLESHEET_COMPONENT, "objectIdentifier": EQUATION_STYLE})
     uuid_entries = comp.setdefault("objectUuidMapEntries", [])
     for ident in new_ids:
-        uuid_entries.append({
-            "identifier": ident,
-            "uuid": {"lower": str(random.getrandbits(64)), "upper": str(random.getrandbits(64))},
-        })
+        uuid = {"lower": str(random.getrandbits(64)), "upper": str(random.getrandbits(64))}
+        uuid_entries.append({"identifier": ident, "uuid": uuid})
