@@ -110,7 +110,7 @@ def read(path: str | pathlib.Path) -> Deck:
 
 
 def _fonts(data: dict) -> dict[str, str]:
-    fonts = data.get("themeStyle", {}).get("fonts", {})
+    fonts = (data.get("themeStyle") or {}).get("fonts") or {}
     return {
         role: spec["family"]
         for role, spec in fonts.items()
@@ -213,15 +213,14 @@ def _is_title(element: dict) -> bool:
 
 def _background(raw: dict) -> str | None:
     value = raw.get("background")
-    if isinstance(value, str):
-        return value
     if isinstance(value, dict):
         if value.get("image"):
             return None
-        color_value = value.get("color")
-        if isinstance(color_value, str):
-            return color_value
-    return None
+        value = value.get("color")
+    if not isinstance(value, str):
+        return None
+    found = _colors_in(value)
+    return found[0] if found else None
 
 
 def _number(value: object) -> float | None:

@@ -73,3 +73,17 @@ def test_strip_html_handles_entities_and_breaks():
 def test_html_table_treats_a_cell_break_as_a_space():
     markup = "<table><tr><td>Linear<br>fit</td><td>3.2</td></tr></table>"
     assert _html_table(markup) == [["Linear fit", "3.2"]]
+
+
+def test_a_null_theme_style_reads_with_no_fonts(tmp_path):
+    (tmp_path / "deck.json").write_text(
+        "{\"title\": \"Old\", \"themeStyle\": null, \"slides\": [{\"elements\": []}]}"
+    )
+    assert read(tmp_path).fonts == {}
+
+
+def test_an_rgb_background_is_normalised_to_hex(tmp_path):
+    (tmp_path / "deck.json").write_text(
+        "{\"slides\": [{\"background\": {\"color\": \"rgb(13, 30, 28)\", \"image\": null}, \"elements\": []}]}"
+    )
+    assert read(tmp_path).slides[0].background == "#0d1e1c"
