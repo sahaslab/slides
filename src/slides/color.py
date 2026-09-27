@@ -1,6 +1,7 @@
 import math
 
 LUMA = (0.2126, 0.7152, 0.0722)
+HALVINGS = 24
 
 
 def to_rgb(value: str) -> tuple[float, float, float]:
@@ -62,6 +63,8 @@ def mix(one: str, other: str, amount: float) -> str:
 
 
 def with_contrast(colour: str, against: str, ratio: float) -> str:
+    # May reduce the result's chroma, at fixed lightness and hue, to keep it
+    # inside the sRGB gamut.
     if contrast(colour, against) >= ratio:
         return colour
     L, C, H = to_oklch(colour)
@@ -69,10 +72,11 @@ def with_contrast(colour: str, against: str, ratio: float) -> str:
     low, high = L, target
     best = from_oklch(target, _fit_chroma(target, C, H), H)
     # Binary search on lightness: contrast is monotone as L moves away from
-    # the ground, so 24 halvings land within a rounding step of the boundary.
-    # Chroma is refitted to the gamut at each step: clamping r/g/b independently
-    # (inside from_oklab) would otherwise shift the hue by several degrees.
-    for _ in range(24):
+    # the ground, so HALVINGS halvings land within a rounding step of the
+    # boundary. Chroma is refitted to the gamut at each step: clamping r/g/b
+    # independently (inside from_oklab) would otherwise shift the hue by
+    # several degrees.
+    for _ in range(HALVINGS):
         middle = (low + high) / 2.0
         candidate = from_oklch(middle, _fit_chroma(middle, C, H), H)
         if contrast(candidate, against) >= ratio:
@@ -104,7 +108,7 @@ def _fit_chroma(L: float, C: float, H: float) -> float:
     if _in_gamut(L, C, H):
         return C
     low, high = 0.0, C
-    for _ in range(20):
+    for _ in range(HALVINGS):
         middle = (low + high) / 2.0
         if _in_gamut(L, middle, H):
             low = middle

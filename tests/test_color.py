@@ -59,3 +59,11 @@ def test_with_contrast_holds_hue():
 
 def test_with_contrast_is_a_no_op_when_already_sufficient():
     assert color.with_contrast("#ffffff", "#000000", 4.5) == "#ffffff"
+
+
+def test_with_contrast_keeps_chroma_when_the_result_stays_in_gamut():
+    before = color.to_oklch("#4090c0")
+    fixed = color.with_contrast("#4090c0", "#ffffff", 4.5)
+    after = color.to_oklch(fixed)
+    assert color._in_gamut(after[0], before[1], before[2])
+    assert after[1] == pytest.approx(before[1], abs=1e-3)
