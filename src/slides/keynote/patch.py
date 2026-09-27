@@ -11,7 +11,7 @@ function readSpec(path) {
     path, $.NSUTF8StringEncoding, null);
   return JSON.parse(ObjC.unwrap(s));
 }
-var spec = readSpec("%s");
+var spec = readSpec(%s);
 var app = Application(%s);
 if (app.documents.length === 0) { throw new Error("No presentation is open."); }
 var doc = app.documents[0];
@@ -37,7 +37,7 @@ for (var key in spec) {
     for (var t = 0; t < entry.tables.length && t < slide.tables.length; t++) {
       var rows = entry.tables[t];
       for (var r = 0; r < rows.length && r < slide.tables[t].rows.length; r++) {
-        for (var c = 0; c < rows[r].length; c++) {
+        for (var c = 0; c < rows[r].length && c < slide.tables[t].rows[r].cells.length; c++) {
           slide.tables[t].rows[r].cells[c].value = rows[r][c];
         }
       }
@@ -54,16 +54,25 @@ def apply(
     app: str | None = None,
 ) -> dict:
     _check(spec)
-    handle = tempfile.NamedTemporaryFile(
+    name = app or jxa.app_name()
+    with tempfile.NamedTemporaryFile(
         mode="w",
         suffix=".json",
         prefix="slides-patch-",
-        delete=False,
-    )
-    json.dump(spec, handle)
-    handle.close()
-    name = app or jxa.app_name()
-    return jxa.run_json(SCRIPT % (handle.name, "\"%s\"" % (name,)))
+    ) as handle:
+        json.dump(spec, handle)
+        handle.flush()
+        return jxa.run_json(SCRIPT % (jxa.literal(handle.name), jxa.literal(name)))
+
+
+def from_dump(document: dict) -> dict:
+    spec = {}
+    for slide in document.get("slides", []):
+        entry = {"notes": slide.get("notes", "")}
+        if slide.get("title") is not None:
+            entry["title"] = slide["title"]
+        spec[str(slide["number"])] = entry
+    return spec
 
 
 def _check(spec: dict) -> None:

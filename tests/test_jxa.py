@@ -33,3 +33,10 @@ def test_failure_raises_a_readable_error():
     with pytest.raises(jxa.KeynoteError) as caught:
         jxa.run("throw new Error('boom')")
     assert "boom" in str(caught.value)
+
+
+@has_osascript
+def test_literal_round_trips_quotes_backslashes_and_newlines():
+    value = "back\\slash \"quoted\"\nnewline"
+    script = "JSON.stringify(%s)" % (jxa.literal(value),)
+    assert jxa.run_json(script) == value

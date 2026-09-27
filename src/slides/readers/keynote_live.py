@@ -42,7 +42,7 @@ JSON.stringify(out);
 
 
 def read() -> Deck:
-    payload = jxa.run_json(SCRIPT % (_quoted(jxa.app_name()),))
+    payload = jxa.run_json(SCRIPT % (jxa.literal(jxa.app_name()),))
     deck = Deck(
         title=payload.get("name", "Untitled"),
         width=float(payload.get("width", 1920.0)),
@@ -55,7 +55,10 @@ def read() -> Deck:
     return deck
 
 
-def _slide(number: int, raw: dict) -> Slide:
+def _slide(
+    number: int,
+    raw: dict,
+) -> Slide:
     title = (raw.get("title") or "").strip() or None
     slide = Slide(
         number=number,
@@ -70,8 +73,3 @@ def _slide(number: int, raw: dict) -> Slide:
     for rows in raw.get("tables", []):
         slide.tables.append(Table(rows=[[str(c or "") for c in row] for row in rows]))
     return slide
-
-
-def _quoted(name: str) -> str:
-    escaped = name.replace("\\", "\\\\").replace("\"", "\\\"")
-    return "\"%s\"" % (escaped,)
