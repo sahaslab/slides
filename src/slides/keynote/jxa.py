@@ -24,3 +24,7 @@ def run(script: str) -> str:
 
 def run_json(script: str) -> object:
     return json.loads(run(script))
+
+
+def literal(value: str) -> str:
+    return json.dumps(value)

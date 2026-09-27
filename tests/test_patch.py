@@ -1,6 +1,12 @@
+import os
 import json
+import pathlib
 import pytest
 from slides.keynote import jxa, patch
+from slides.readers.deckwerk import read
+from slides.writers import json as json_writer
+
+FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "mini_deckwerk"
 
 
 def test_writes_the_spec_to_a_file_and_reports(monkeypatch):
@@ -41,3 +47,46 @@ def test_accepts_every_documented_field(monkeypatch):
         }
     }
     assert patch.apply(spec)["updated"] == 1
+
+
+def test_removes_the_temp_file_after_returning(monkeypatch):
+    seen = {}
+
+    def fake_run_json(script: str) -> dict:
+        path = script.split("readSpec(\"")[1].split("\")")[0]
+        seen["path"] = path
+        assert os.path.exists(path)
+        return {"updated": 1, "skipped": []}
+
+    monkeypatch.setattr(jxa, "run_json", fake_run_json)
+    patch.apply({"1": {"title": "x"}})
+    assert not os.path.exists(seen["path"])
+
+
+def test_table_writes_are_bounded_by_the_live_cell_count():
+    # JXA only; exercised for real by the controller's live-app check.
+    assert "c < slide.tables[t].rows[r].cells.length" in patch.SCRIPT
+
+
+def test_from_dump_takes_only_title_and_notes():
+    document = {
+        "slides": [
+            {"number": 1, "title": "T1", "notes": "n1", "body": ["ignored"]},
+            {"number": 2, "title": None, "notes": "n2"},
+        ]
+    }
+    assert patch.from_dump(document) == {
+        "1": {"title": "T1", "notes": "n1"},
+        "2": {"notes": "n2"},
+    }
+
+
+def test_from_dump_round_trips_a_real_dump(monkeypatch):
+    document = json_writer.to_dict(read(FIXTURE))
+    spec = patch.from_dump(document)
+    assert spec
+    for entry in spec.values():
+        assert set(entry) <= {"title", "notes"}
+
+    monkeypatch.setattr(jxa, "run_json", lambda script: {"updated": len(spec), "skipped": []})
+    assert patch.apply(spec)["updated"] == len(spec)

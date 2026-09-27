@@ -44,12 +44,12 @@ def test_builds_a_deck_from_the_payload(monkeypatch):
 @has_osascript
 def test_quoted_keeps_a_backslash_literal():
     name = "back\\slash"
-    script = "JSON.stringify(%s)" % (keynote_live._quoted(name),)
+    script = "JSON.stringify(%s)" % (jxa.literal(name),)
     assert jxa.run_json(script) == name
 
 
 @has_osascript
 def test_quoted_keeps_a_backslash_and_a_quote_literal():
     name = "back\\slash \"quoted\""
-    script = "JSON.stringify(%s)" % (keynote_live._quoted(name),)
+    script = "JSON.stringify(%s)" % (jxa.literal(name),)
     assert jxa.run_json(script) == name
