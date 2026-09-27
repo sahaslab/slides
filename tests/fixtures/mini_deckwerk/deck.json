@@ -2,6 +2,7 @@
   "version": 1,
   "title": "Mini",
   "canvas": { "w": 1920, "h": 1080 },
+  "theme": "theme.css",
   "themeStyle": {
     "fonts": {
       "title": { "family": "Libre Franklin" },
@@ -27,7 +28,7 @@
     {
       "id": "slide-2",
       "name": "Numbers",
-      "background": "#0d1e1c",
+      "background": { "color": "#0d1e1c", "image": null },
       "notes": "",
       "elements": [
         { "id": "e4", "x": 120, "y": 84, "w": 1680, "h": 67, "z": 1,
@@ -47,8 +48,10 @@
       "background": "#0d1e1c",
       "notes": "",
       "elements": [
+        { "id": "e10", "x": 120, "y": 20, "w": 1680, "h": 50, "z": 0,
+          "type": "text", "html": "Nikhil Singh, Fall 2026" },
         { "id": "e6", "x": 120, "y": 84, "w": 1680, "h": 67, "z": 1,
-          "type": "text", "html": "Demos" },
+          "type": "text", "html": "Demos", "morphId": "title", "class": ["t"] },
         { "id": "e7", "x": 120, "y": 200, "w": 1680, "h": 780, "z": 2,
           "type": "web", "src": "assets/web/demo.html",
           "poster": "assets/web/demo.poster.png", "title": "A demo" },
@@ -57,7 +60,11 @@
         { "id": "e9", "x": 120, "y": 1100, "w": "998.06", "h": "464.88", "z": 4,
           "type": "html", "sandboxed": "True",
           "fallbackReason": "TABLE is preserved as HTML",
-          "html": "<table><tr><td>Model</td><td>MSE</td></tr><tr><td>Linear</td><td>3.2</td></tr></table>" }
+          "html": "<table><tr><td>Model</td><td>MSE</td></tr><tr><td>Linear</td><td>3.2</td></tr></table>" },
+        { "id": "e11", "x": 120, "y": 1300, "w": 800, "h": 60, "z": 5,
+          "type": "html", "sandboxed": "True",
+          "fallbackReason": "TEXT is preserved as HTML",
+          "html": "<p>Fallback note</p>" }
       ]
     }
   ]

@@ -1,0 +1,16 @@
+/* Base style every slide inherits. */
+.slide {
+  background: #0d1e1c;
+  color: #eef3f0;
+}
+
+.t { color: #a5d75f; }
+.vr { background: #2c403b; }
+.dim { color: #93a69f; }
+
+/* >>> slide-editor theme (generated) */
+.slide {
+  background: #0a0905;
+  color: #e7e7e6;
+}
+/* <<< end theme */

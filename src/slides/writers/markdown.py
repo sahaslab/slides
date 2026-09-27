@@ -21,7 +21,7 @@ def render(
 def _slide(slide: Slide) -> str:
     parts: list[str] = []
     if slide.title:
-        parts.append("### %s\n" % (slide.title,))
+        parts.append("### %s\n" % (_heading(slide.title),))
     for item in slide.body_items():
         parts.append(_bullets(item.text))
     for table in slide.tables:
@@ -31,6 +31,10 @@ def _slide(slide: Slide) -> str:
     if slide.notes.strip():
         parts.append(_quote(slide.notes))
     return "\n".join(parts)
+
+
+def _heading(title: str) -> str:
+    return " ".join(title.split())
 
 
 def _bullets(text: str) -> str:

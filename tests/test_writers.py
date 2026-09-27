@@ -47,6 +47,15 @@ def test_markdown_does_not_repeat_the_title_as_a_bullet():
     assert "- Fitting a line" not in out
 
 
+def test_markdown_collapses_a_multi_line_title_onto_one_line():
+    deck = Deck(
+        title="T",
+        slides=[Slide(number=1, title="Conditional\nPrediction")],
+    )
+    out = markdown.render(deck)
+    assert "### Conditional Prediction" in out
+
+
 def test_notes_only_drops_everything_else():
     out = markdown.render(a_deck(), notes_only=True)
     assert "Ask for a show of hands." in out

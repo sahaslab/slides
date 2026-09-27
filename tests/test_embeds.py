@@ -37,6 +37,11 @@ def test_html_fallback_is_not_also_emitted_as_body_text():
     assert not any("Model" in i.text for i in slide.body_items())
 
 
+def test_html_fallback_without_a_table_becomes_body_text():
+    slide = read(FIXTURE).slides[2]
+    assert "Fallback note" in [i.text for i in slide.body_items()]
+
+
 def test_markdown_links_a_web_embed():
     out = markdown.render(read(FIXTURE))
     assert "[Interactive: A demo](assets/web/demo.html)" in out
