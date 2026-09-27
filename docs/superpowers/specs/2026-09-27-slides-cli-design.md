@@ -59,6 +59,7 @@ up here.**
     slides scaffold SPEC              build a new deck in live Keynote
     slides patch SPEC                 apply a per-slide spec to the open deck
     slides math TARGET                LaTeX -> native Keynote equations
+    slides theme TARGET               the deck's palette, for plots
     slides info TARGET                what a deck contains, and what converted badly
 
 `TARGET` is auto-detected: a `.key` file, a `.pptx` file, a DeckWerk folder, or —
@@ -131,25 +132,69 @@ the target, because the importer's coverage report is printed, not persisted:
   canvas overflows.
 - On a `.pptx`: inventory only.
 
-### `slides.figures`
+### `slides theme` and `slides.theme`
 
-Library only, no command. Plots that go on a deck should match the deck, and the
-deck already states its colours and fonts — in `theme.css` and `deck.json` for
-DeckWerk, in the theme for Keynote and PowerPoint. So this module *derives* a
-matplotlib style from a deck rather than hardcoding one:
+Plots and figures that go beside a deck should match it, and a deck already
+states its colours and fonts. This component extracts a palette from any deck
+and emits it for whatever is drawing.
+
+**Naive extraction does not work.** Counting colour frequency in a real Keynote
+file returns, in order: `#000000` (606), `#ffffff` (394), `#f9f9f9` (324),
+`#fefffe` (54), `#888888` (30), and only then `#a5d75f` (27) — which is the
+deck's actual accent. Keynote's stock stylesheet ships hundreds of preset
+swatches that swamp the colours the deck really uses. So extraction is a
+two-stage process: gather candidates, then infer roles perceptually.
+
+**Gathering.** Colours that are *used* outrank colours that merely *exist*. In
+descending priority: slide background fills, text fills referenced by drawables
+actually on slides, shape and stroke fills on slides, and only then the document
+stylesheet. Each candidate carries a usage weight and the area it covers.
+
+**Role inference**, in OKLab/OKLCH — perceptually uniform, so "similar" and
+"readable" mean what they should. Implemented in about forty lines of pure
+Python; no dependency.
+
+- `background` — the slide background fill, which is known outright rather than
+  guessed. Where several differ, the one covering the most slides.
+- `foreground` — among text colours, the one with the highest WCAG contrast
+  against the background, broken by usage weight.
+- `muted` — text colours sitting between about 2:1 and the foreground's
+  contrast, nearest the foreground in hue.
+- `accents` — chromatic candidates (OKLCH chroma above threshold) clearing a
+  minimum contrast against the background, ordered by usage and then spread by
+  hue so a categorical scale gets distinct hues rather than four blues.
+- `grid` — the lowest-contrast non-background colour, in the 1.1:1 to 2:1 band.
+
+Near-duplicates collapse by OKLab ΔE before roles are assigned, so a preset
+gradient family (`#00a2ff`, `#0085d1`, `#0093e8`, `#1fa3ff`) becomes one accent
+rather than four. Any accent returned for a categorical scale is guaranteed to
+clear its contrast floor; one that does not is lightened or darkened in OKLCH
+with its hue held.
+
+**Emitters.** The extracted `DeckTheme` renders to:
+
+- **matplotlib** — an `rcParams` dict, and `deck_style()` as a context manager.
+- **ggplot2** — R source defining `theme_deck()` plus `scale_colour_deck()` and
+  `scale_fill_deck()`, written tidyverse-style for sourcing from an analysis.
+- **JSON** — the roles, for anything else.
+- **CSS** — custom properties, for a web element or an HTML figure.
+
+    slides theme TARGET [-f matplotlib|ggplot|json|css] [--accents N]
 
 ```python
 from slides import read_deck
-from slides.figures import deck_style
+from slides.theme import extract, deck_style
 
-with deck_style(read_deck("talk/")):
+theme = extract(read_deck("talk/"))
+theme.background, theme.foreground, theme.accents
+
+with deck_style(theme):
     fig, ax = plt.subplots()
-    ...
 ```
 
-It extracts background, text, muted-text, grid and a sequence of accent colours,
-maps them onto `rcParams`, and yields. A palette can be overridden or supplied
-outright for callers with no deck in hand. The tool ships no palette of its own.
+The tool ships no palette of its own; every colour comes from the deck in hand.
+A caller with no deck can build a `DeckTheme` directly.
+
 
 ## Architecture
 
@@ -173,7 +218,10 @@ sixteen, and the model is the thing that makes the package worth importing.
       deckwerk/
         importer.py       wraps import_keynote.py, manages its venv
         agent.py          wraps slide-agent
-      figures.py          matplotlib style derived from a deck's theme
+      color.py            OKLab/OKLCH, WCAG contrast, perceptual dedupe
+      theme.py            palette extraction and role inference
+      emit/
+        matplotlib.py  ggplot.py  css.py
       cli.py              argparse subcommands, thin
 
 Library use:
@@ -227,7 +275,8 @@ Isolated environment, no conda pollution, source edits live. Without
 `--editable`, a frozen install; the same command works against a git URL.
 
 Core dependencies: `keynote-parser`, `python-pptx`. Extra `[figures]`:
-`matplotlib`.
+`matplotlib`. Colour science is pure Python — no `colormath`, no `numpy`
+on that path.
 
 DeckWerk is located by `--deckwerk-root`, then `$SLIDES_DECKWERK_ROOT`, then
 `~/src/deckwerk`. On first use of `convert -f deckwerk` a missing importer venv
@@ -250,4 +299,5 @@ JXA paths get thin integration tests, skipped when Keynote is absent.
 - Writing `.key` files directly with keynote-parser. It is possible, but brittle
   across Keynote versions, and the pptx route covers the need.
 - Any built-in palette, theme, template, or house style.
+- Rendering plots. `slides theme` hands over a palette; the caller draws.
 - Anything that needs to know a deck's subject matter.
