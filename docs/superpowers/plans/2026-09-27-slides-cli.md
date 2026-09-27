@@ -1477,7 +1477,8 @@ import pytest
 from slides.keynote import jxa
 
 has_osascript = pytest.mark.skipif(
-    shutil.which("osascript") is None, reason="not a Mac"
+    shutil.which("osascript") is None,
+    reason="not a Mac",
 )
 
 
@@ -1664,7 +1665,8 @@ def _slide(number: int, raw: dict) -> Slide:
 
 
 def _quoted(name: str) -> str:
-    return '"%s"' % (name.replace('"', '\\"'),)
+    escaped = name.replace("\\", "\\\\").replace('"', '\\"')
+    return '"%s"' % (escaped,)
 ```
 
 Write `src/slides/keynote/__init__.py` as an empty file.
