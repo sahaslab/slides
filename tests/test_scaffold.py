@@ -78,7 +78,7 @@ def test_checks_masters_exist_before_creating_any_slide():
     checked_at = scaffold.SCRIPT_CREATE.index("available.indexOf(name) === -1")
     created_at = scaffold.SCRIPT_CREATE.index("doc.slides.push(made)")
     assert checked_at < created_at
-    assert "No master slide named " in scaffold.SCRIPT_CREATE
+    assert "No slide layout named " in scaffold.SCRIPT_CREATE
     assert "available: " in scaffold.SCRIPT_CREATE
 
 

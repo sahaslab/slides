@@ -13,15 +13,14 @@ var app = Application(%s);
 app.includeStandardAdditions = true;
 %s
 var wanted = %s;
-var available = [];
-for (var m = 0; m < doc.masterSlides.length; m++) {
-  available.push(doc.masterSlides[m].name());
-}
+// Keynote calls master slides "slide layouts"; JXA does not honour the old
+// element name.
+var available = doc.slideLayouts.name();
 for (var i = 0; i < wanted.length; i++) {
   var name = wanted[i].master;
   if (name && available.indexOf(name) === -1) {
     throw new Error(
-      "No master slide named " + name + "; available: " + available.join(", ")
+      "No slide layout named " + name + "; available: " + available.join(", ")
     );
   }
 }
@@ -31,7 +30,7 @@ for (var i = 0; i < wanted.length; i++) {
   var name = wanted[i].master;
   var made;
   if (name) {
-    made = app.Slide({baseSlide: doc.masterSlides.byName(name)});
+    made = app.Slide({baseLayout: doc.slideLayouts.byName(name)});
   } else {
     made = app.Slide();
   }
