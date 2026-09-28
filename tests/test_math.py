@@ -1,5 +1,7 @@
+import sys
 import os
 import shutil
+import subprocess
 import hashlib
 import pathlib
 import zipfile
@@ -45,30 +47,74 @@ def test_does_not_match_across_a_blank_line() -> None:
     assert math.find_equations("$start\n\nend$") == []
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "$5-$10",
+        "$10k\N{EN DASH}$20k",
+        "$5,$6",
+        "US$5 vs US$6",
+        "\\$5 and \\$6",
+        "$20,000 to $500,000",
+        "$10 now or $14",
+    ],
+)
+def test_leaves_currency_alone(text: str) -> None:
+    assert math.find_equations(text) == []
+
+
+def test_an_escaped_dollar_can_sit_inside_math() -> None:
+    assert math.find_equations("cost in $\\$^2$ units") == [(8, 14, "\\$^2")]
+
+
+def test_importing_the_converter_leaves_yaml_unloaded() -> None:
+    code = "import sys; import slides.keynote.math; print(\"yaml\" in sys.modules)"
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "False"
+
+
 # Storage edits, on hand-built archives
 
 def test_places_an_equation_after_an_emoji_in_utf16_units() -> None:
     # The emoji is two UTF-16 units, so the placeholder lands at 3, not 2.
     arch, obj = storage("\N{BAR CHART} $N$\nnext", [0, 7])
-    math.convert_storage(arch, obj, "1", iter(["10", "11", "12", "13"]), {}, "99")
+    math.convert_storage(arch, obj, "1", iter(["10", "11", "12", "13"]), {}, "99", 1)
     assert obj["tableAttachment"]["entries"] == [{"characterIndex": 3, "object": {"identifier": "10"}}]
     assert utf16_at(obj["text"][0], 3) == math.PLACEHOLDER
     assert indices(obj["tableParaStyle"]) == [0, 5]
 
 
-def test_drops_entries_that_began_inside_the_math() -> None:
+def test_a_run_that_starts_inside_the_math_resumes_after_it() -> None:
+    # Bold starts at "+", so " now" was bold and has to stay bold.
+    arch, obj = storage("see $a+b$ now", [0])
+    obj["tableCharStyle"] = {"entries": [{"characterIndex": 0}, {"characterIndex": 6, "object": {"identifier": "bold"}}]}
+    obj["tableListStyle"] = {"entries": [{"characterIndex": 0}, {"characterIndex": 7}]}
+    math.convert_storage(arch, obj, "1", iter(["10", "11", "12", "13"]), {}, "99", 1)
+    assert obj["text"] == ["see %s now" % (math.PLACEHOLDER,)]
+    assert obj["tableCharStyle"]["entries"] == [{"characterIndex": 0}, {"characterIndex": 5, "object": {"identifier": "bold"}}]
+    assert indices(obj["tableListStyle"]) == [0]
+
+
+def test_a_later_run_at_the_same_place_wins() -> None:
+    arch, obj = storage("see $a+b$ now", [0])
+    entries = [{"characterIndex": 0}, {"characterIndex": 6, "object": {"identifier": "bold"}}, {"characterIndex": 9}]
+    obj["tableCharStyle"] = {"entries": entries}
+    math.convert_storage(arch, obj, "1", iter(["10", "11", "12", "13"]), {}, "99", 1)
+    assert obj["tableCharStyle"]["entries"] == [{"characterIndex": 0}, {"characterIndex": 5}]
+
+
+def test_math_across_a_paragraph_break_is_left_as_text(capsys: pytest.CaptureFixture) -> None:
     arch, obj = storage("a $x\ny$ b", [0, 5])
-    obj["tableCharStyle"] = {"entries": [{"characterIndex": 0}, {"characterIndex": 8}]}
-    math.convert_storage(arch, obj, "1", iter(["10", "11", "12", "13"]), {}, "99")
-    assert obj["text"] == ["a %s b" % (math.PLACEHOLDER,)]
-    assert indices(obj["tableParaStyle"]) == [0]
-    assert indices(obj["tableCharStyle"]) == [0, 4]
+    assert math.convert_storage(arch, obj, "1", iter(["10", "11", "12", "13"]), {}, "99", 7) == []
+    assert obj["text"] == ["a $x\ny$ b"]
+    assert indices(obj["tableParaStyle"]) == [0, 5]
+    assert "slide 7" in capsys.readouterr().err
 
 
 def test_shifts_existing_attachments_past_the_math() -> None:
     arch, obj = storage("$x$ and %s" % (math.PLACEHOLDER,), [0])
     obj["tableAttachment"] = {"entries": [{"characterIndex": 8, "object": {"identifier": "5"}}]}
-    math.convert_storage(arch, obj, "1", iter(["10", "11", "12", "13"]), {}, "99")
+    math.convert_storage(arch, obj, "1", iter(["10", "11", "12", "13"]), {}, "99", 1)
     assert indices(obj["tableAttachment"]) == [0, 6]
     assert all(utf16_at(obj["text"][0], index) == math.PLACEHOLDER for index in [0, 6])
 
@@ -89,15 +135,24 @@ def test_a_paragraph_without_a_style_continues_the_one_before() -> None:
     arch, obj = storage("first\nthen $x$", [0])
     obj["tableParaStyle"]["entries"].append({"characterIndex": 6})
     styles = {"p": {"charProperties": {"fontName": "Avenir", "fontSize": 40.0, "fontColor": WHITE}}}
-    added = math.convert_storage(arch, obj, "1", iter(["10", "11", "12", "13"]), styles, "99")
+    added = math.convert_storage(arch, obj, "1", iter(["10", "11", "12", "13"]), styles, "99", 1)
     properties = added[1]["objects"][0][PROPERTIES]
     assert (properties["fontName"], properties["fontSize"], properties["fontColor"]) == ("Avenir", 40.0, WHITE)
 
 
-def test_unresolved_appearance_falls_back_to_black() -> None:
+def test_unresolved_appearance_falls_back_to_black_system_text() -> None:
     properties = math.text_properties(None, {})
-    assert (properties["fontName"], properties["fontSize"]) == (math.FALLBACK_FONT, math.FALLBACK_SIZE)
+    assert (properties["fontName"], properties["fontSize"]) == ("HelveticaNeue", math.FALLBACK_SIZE)
     assert properties["fontColor"] == math.BLACK
+
+
+def test_new_ids_start_above_every_identifier_in_use(tmp_path: pathlib.Path) -> None:
+    # A deck whose recorded counter lags behind an identifier it already uses.
+    (tmp_path / "Tables").mkdir()
+    (tmp_path / "Slide-1.iwa.yaml").write_text("- header:\n    identifier: '40'\n", encoding="utf-8")
+    (tmp_path / "Tables" / "DataList-2.iwa.yaml").write_text("    identifier: '75'\n", encoding="utf-8")
+    assert math.first_free_id(tmp_path, {"lastObjectIdentifier": "50"}) == 76
+    assert math.first_free_id(tmp_path, {"lastObjectIdentifier": "90"}) == 91
 
 
 def test_prefers_an_equation_style_then_the_image_style() -> None:
@@ -164,6 +219,22 @@ def test_no_style_or_attachment_index_runs_past_its_text(converted: Converted) -
                 found = indices(table)
                 assert found == sorted(set(found))
                 assert all(index <= length for index in found)
+
+
+@needs_real
+def test_presenter_notes_are_untouched(converted: Converted) -> None:
+    out, _, _ = converted
+    before = archives(REAL)
+    after = archives(out)
+    notes = [
+        obj[key]["identifier"]
+        for obj in before.values()
+        if obj.get("_pbtype") == "KN.NoteArchive"
+        for key in ("containedStorage", "ownedStorage")
+        if key in obj
+    ]
+    assert any("$" in "".join(before[ident].get("text") or []) for ident in notes)
+    assert all(after[ident] == before[ident] for ident in notes)
 
 
 @needs_real
@@ -237,6 +308,44 @@ def test_command_defaults_to_a_suffixed_copy(
     assert out.exists()
     assert capsys.readouterr().out.strip() == str(out)
     assert digest(source) == before
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        None,
+        "deck.key",
+    ],
+)
+def test_command_refuses_to_overwrite(
+    output: str | None,
+    tmp_path: pathlib.Path,
+    capsys: pytest.CaptureFixture
+) -> None:
+    # None: the default deck-math.key already exists. "deck.key": the source itself.
+    source = tmp_path / "deck.key"
+    source.write_bytes(b"not really a deck")
+    (tmp_path / "deck-math.key").write_bytes(b"an earlier conversion")
+    before = digest(source)
+    out = tmp_path / output if output else None
+    args = argparse.Namespace(target=str(source), output=str(out) if out else None, min_slide=1)
+    assert math_command.run(args) == 1
+    expected = out if out else tmp_path / "deck-math.key"
+    assert capsys.readouterr().err == "%s already exists; pass -o with a new path\n" % (expected,)
+    assert digest(source) == before
+    assert (tmp_path / "deck-math.key").read_bytes() == b"an earlier conversion"
+
+
+def test_command_refuses_an_output_that_is_not_a_key_file(
+    tmp_path: pathlib.Path,
+    capsys: pytest.CaptureFixture
+) -> None:
+    source = tmp_path / "deck.key"
+    source.write_bytes(b"not really a deck")
+    args = argparse.Namespace(target=str(source), output=str(tmp_path / "converted"), min_slide=1)
+    assert math_command.run(args) == 1
+    assert "does not end in .key" in capsys.readouterr().err
+    assert not (tmp_path / "converted").exists()
 
 
 # Helpers

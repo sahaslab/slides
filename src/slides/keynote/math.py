@@ -6,19 +6,33 @@ import random
 import tempfile
 import subprocess
 import itertools
-import yaml
 from collections.abc import Iterator
 
 DISPLAY = re.compile(r"\$\$(?!\s)((?:[^$\n]|\n(?!\n))+?)(?<!\s)\$\$")
-INLINE = re.compile(r"(?<!\$)\$(?!\s)((?:[^$\n]|\n(?!\n))+?)(?<!\s)\$(?!\$)")
+# Pandoc's rules, so prices stay text: the opening $ has a non-space after it,
+# the closing $ a non-space before it and no digit after it, and \$ is never
+# a delimiter (it may sit inside the math).
+INLINE = re.compile(r"(?<![\\$])\$(?!\s)((?:[^$\\\n]|\\.|\n(?!\n))+?)(?<!\s)\$(?![$\d])")
 PLACEHOLDER = "\N{OBJECT REPLACEMENT CHARACTER}"
 # Only used when the host paragraph's style chain does not set the property.
-FALLBACK_FONT = "LibreFranklin-Thin_Regular"
+FALLBACK_FONT = "HelveticaNeue"
 FALLBACK_SIZE = 28.0
 BLACK = {"a": 1.0, "b": 0.0, "g": 0.0, "model": "rgb", "r": 0.0, "rgbspace": "srgb"}
-# libyaml when it is installed: several times faster on a large stylesheet.
-LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
-DUMPER = getattr(yaml, "CSafeDumper", yaml.SafeDumper)
+# Entries here mark paragraphs, or the single character an attachment sits on,
+# so one that began inside replaced math is dropped; every other table holds
+# character runs, which resume just after the equation.
+DROPPED_INSIDE = (
+    "tableParaStyle",
+    "tableParaStarts",
+    "tableParaBidi",
+    "tableParaData",
+    "tableListStyle",
+    "tableDropCapStyle",
+    "tableAttachment",
+)
+# Range-based tables are not shifted; no deck we have seen uses them.
+RANGE_TABLES = ("tableOverlappingHighlight", "tablePencilAnnotation")
+IDENTIFIER = re.compile(r"\bidentifier: '?(\d+)'?")
 
 
 def find_equations(text: str) -> list[tuple[int, int, str]]:
@@ -103,17 +117,16 @@ def process_presentation(
     sheet_name = sheet_component.get("locator", sheet_component["preferredLocator"])
     sheet_styles = archive_objects(load(index_dir / ("%s.iwa.yaml" % (sheet_name,))))
     component, style = equation_style(sheet_component, sheet_styles)
-    # New archives take identifiers above every one the deck has handed out.
-    ids = (str(ident) for ident in itertools.count(int(package["lastObjectIdentifier"]) + 1))
+    ids = (str(ident) for ident in itertools.count(first_free_id(index_dir, package)))
     slide_map = get_slide_mapping(unpack_dir)
     targets = [
-        slide_map[number]
+        (number, slide_map[number])
         for number in range(min_slide, len(slide_map) + 1)
         if slide_map.get(number)
     ]
     modified_components: dict[str, list[str]] = {}
     total = 0
-    for slide_archive_id in targets:
+    for number, slide_archive_id in targets:
         # Exact names only: a bare "Slide-<id>*" glob also catches longer ids.
         slide_files = sorted(
             list(index_dir.glob("Slide-%s.iwa.yaml" % (slide_archive_id,)))
@@ -125,7 +138,7 @@ def process_presentation(
         locator = slide_file.name.replace(".iwa.yaml", "")
         slide_data = load(slide_file)
         styles = {**sheet_styles, **archive_objects(slide_data)}
-        new_archives = convert_slide(slide_data, ids, styles, style)
+        new_archives = convert_slide(slide_data, ids, styles, style, number)
         if not new_archives:
             continue
         # Each equation adds an attachment, the equation, a caption and a title.
@@ -137,6 +150,18 @@ def process_presentation(
         register_components(package, modified_components, component, style)
         dump(meta, meta_path)
     return total
+
+
+def first_free_id(
+    index_dir: pathlib.Path,
+    package: dict
+) -> int:
+    # Above both the recorded counter and every identifier any archive uses,
+    # in case the counter lags behind the archives.
+    used = [int(package["lastObjectIdentifier"])]
+    for path in index_dir.rglob("*.iwa.yaml"):
+        used.extend(int(found) for found in IDENTIFIER.findall(path.read_text(encoding="utf-8")))
+    return max(used) + 1
 
 
 def equation_style(
@@ -182,7 +207,8 @@ def convert_slide(
     slide_data: dict,
     ids: Iterator[str],
     styles: dict[str, dict],
-    style: str
+    style: str,
+    number: int
 ) -> list[dict]:
     # Presenter notes stay plain text, so their storages are never touched.
     note_ids = note_storage_ids(slide_data)
@@ -195,7 +221,7 @@ def convert_slide(
             for obj in arch.get("objects", []):
                 if obj.get("_pbtype") != "TSWP.StorageArchive" or not obj.get("text"):
                     continue
-                new_archives.extend(convert_storage(arch, obj, storage_id, ids, styles, style))
+                new_archives.extend(convert_storage(arch, obj, storage_id, ids, styles, style, number))
     return new_archives
 
 
@@ -219,11 +245,12 @@ def convert_storage(
     storage_id: str,
     ids: Iterator[str],
     styles: dict[str, dict],
-    style: str
+    style: str,
+    number: int
 ) -> list[dict]:
     # Keynote's character indices count UTF-16 code units, not code points.
     full_text = "".join(obj["text"])
-    matches = find_equations(full_text)
+    matches = within_paragraphs(full_text, number)
     if not matches:
         return []
     obj_refs = arch["header"]["messageInfos"][0].setdefault("objectReferences", [])
@@ -259,42 +286,58 @@ def convert_storage(
     new_text_parts.append(full_text[last_pos:])
     obj["text"] = ["".join(new_text_parts)]
     for key, table in obj.items():
-        if key.startswith("table") and isinstance(table, dict) and "entries" in table:
-            table["entries"] = remap_entries(table["entries"], shift_points)
+        if key.startswith("table") and key not in RANGE_TABLES and isinstance(table, dict) and "entries" in table:
+            table["entries"] = remap_entries(table["entries"], shift_points, key not in DROPPED_INSIDE)
     attachments = obj.get("tableAttachment", {}).get("entries", []) + new_attachments
     obj["tableAttachment"] = {"entries": sorted(attachments, key=lambda entry: entry["characterIndex"])}
     return new_archives
 
 
+def within_paragraphs(
+    text: str,
+    number: int
+) -> list[tuple[int, int, str]]:
+    # "\n" is a Keynote paragraph break, so math spanning one is left as text.
+    kept = []
+    for start, end, latex in find_equations(text):
+        if "\n" in text[start:end]:
+            sys.stderr.write("slide %d: left math that spans a paragraph break as text: %r\n" % (number, text[start:end]))
+            continue
+        kept.append((start, end, latex))
+    return kept
+
+
 def remap_entries(
     entries: list[dict],
-    shift_points: list[tuple[int, int]]
+    shift_points: list[tuple[int, int]],
+    keep_inside: bool
 ) -> list[dict]:
-    # An entry that began inside a replaced span has no character left to
-    # begin at (a paragraph break inside the math, say), so it is dropped.
-    kept = []
+    # An entry that began inside replaced math either resumes just after the
+    # equation or is dropped; when two land together, the later one wins.
+    kept: dict[int, dict] = {}
     for entry in entries:
-        index = remap_char_index(entry.get("characterIndex", 0), shift_points)
-        if index is None:
+        index, inside = remap_char_index(entry.get("characterIndex", 0), shift_points)
+        if inside and not keep_inside:
             continue
         if "characterIndex" in entry:
             entry["characterIndex"] = index
-        kept.append(entry)
-    return kept
+        kept[index] = entry
+    return list(kept.values())
 
 
 def remap_char_index(
     old_idx: int,
     shift_points: list[tuple[int, int]]
-) -> int | None:
-    # Each (start, end) span of the old text is now one placeholder character.
+) -> tuple[int, bool]:
+    # Each (start, end) span of the old text is now one placeholder character;
+    # an index inside a span moves to just after its placeholder, and says so.
     shift = 0
     for start, end in shift_points:
         if start < old_idx < end:
-            return None
+            return start + shift + 1, True
         if old_idx >= end:
             shift += 1 - (end - start)
-    return old_idx + shift
+    return old_idx + shift, False
 
 
 def utf16_len(text: str) -> int:
@@ -489,17 +532,22 @@ def register_component(
         uuid_entries.append({"identifier": ident, "uuid": uuid})
 
 
-# YAML
+# YAML, through libyaml when it is installed: several times faster on a large
+# stylesheet. Imported here so loading the module stays cheap.
 
 def load(path: pathlib.Path) -> dict:
-    return yaml.load(path.read_text(encoding="utf-8"), Loader=LOADER)
+    import yaml
+    loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+    return yaml.load(path.read_text(encoding="utf-8"), Loader=loader)
 
 
 def dump(
     data: dict,
     path: pathlib.Path
 ) -> None:
-    path.write_text(yaml.dump(data, Dumper=DUMPER), encoding="utf-8")
+    import yaml
+    dumper = getattr(yaml, "CSafeDumper", yaml.SafeDumper)
+    path.write_text(yaml.dump(data, Dumper=dumper), encoding="utf-8")
 
 
 def archive_objects(data: dict) -> dict[str, dict]:
