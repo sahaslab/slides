@@ -69,7 +69,6 @@ def _to_keynote(
         export.open_and_save(source, out)
     else:
         build.build(readers.read(source), out)
-        sys.stderr.write("Builds and transitions do not survive this route\n")
     sys.stdout.write("%s\n" % (out,))
     return 0
 
