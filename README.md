@@ -39,6 +39,8 @@ only command that touches the running application without being told to.
 file, `--out-dir DIR` writes one file per input for batch runs, and
 `--clipboard` copies instead of printing. `--notes-only` restricts the output
 to presenter notes, numbered by slide.
+`--via-deckwerk` reads a `.key` through the DeckWerk importer instead of the
+fast headless reader, which is slower but carries its layout, images and tables.
 
 A deck's interactive `web` pages, `video` links and fallback `html` tables all
 survive the dump: pages are copied beside the output (into `<output>_assets/`,
@@ -46,6 +48,12 @@ or `--assets-dir`) and linked from the Markdown; video is linked to its
 existing location, and copied too with `--copy-media`; `html` that is really a
 table renders as a pipe table. Dumping to stdout copies nothing — `dump` says
 so on stderr and links point back into the source deck instead.
+
+### `math` in more detail
+
+The output defaults to `<name>-math.key` beside the source, and `-o` names
+another `.key`. `--min-slide N` leaves slides before N alone. Text that spans
+a paragraph break, or a `$` that reads as currency (`$5-$10`), stays as text.
 
 ### `patch` and `scaffold` in more detail
 

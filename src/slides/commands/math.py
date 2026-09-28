@@ -1,6 +1,7 @@
 import sys
 import pathlib
 import argparse
+from slides.commands import taken
 from slides.keynote import math
 
 
@@ -12,8 +13,7 @@ def run(args: argparse.Namespace) -> int:
     if out.suffix != ".key":
         sys.stderr.write("%s does not end in .key; pass -o with a .key path\n" % (out,))
         return 1
-    if out.exists():
-        sys.stderr.write("%s already exists; pass -o with a new path\n" % (out,))
+    if taken(out):
         return 1
     count = math.convert(source, out, min_slide=args.min_slide)
     sys.stderr.write("Converted %d equations\n" % (count,))

@@ -3,6 +3,7 @@ import pathlib
 import zipfile
 import warnings
 from collections.abc import Iterator
+from slides.color import to_hex
 from slides.model import ColorUse, Deck, Slide, TextItem
 
 STORAGE_KEYS = ("ownedStorage", "deprecatedStorage", "containedStorage")
@@ -156,7 +157,7 @@ def _resolve_background(
         _, color = _resolve_color(template_style_id, index, "slideProperties", "fill")
     if color is None:
         return None
-    hexvalue = _to_hex(color)
+    hexvalue = to_hex(float(color["r"]), float(color["g"]), float(color["b"]))
     colors[(hexvalue, "background")] = colors.get((hexvalue, "background"), 0.0) + 1.0
     return hexvalue
 
@@ -174,7 +175,7 @@ def _harvest_fill(
     _, color = _resolve_color(style_id, index, "shapeProperties", "fill")
     if color is None:
         return
-    hexvalue = _to_hex(color)
+    hexvalue = to_hex(float(color["r"]), float(color["g"]), float(color["b"]))
     colors[(hexvalue, "fill")] = colors.get((hexvalue, "fill"), 0.0) + 1.0
 
 
@@ -206,7 +207,7 @@ def _harvest_text_colors(
         _, color = _resolve_color(style_id, index, "charProperties", "fontColor")
         if color is None:
             continue
-        hexvalue = _to_hex(color)
+        hexvalue = to_hex(float(color["r"]), float(color["g"]), float(color["b"]))
         weight = colors.get((hexvalue, "text"), 0.0)
         colors[(hexvalue, "text")] = weight + float(length)
 
@@ -281,13 +282,6 @@ def _resolve_color(
             node = node.get("super")
         style_id = _style_parent(style)
     return False, None
-
-
-def _to_hex(color: dict) -> str:
-    return "#%02x%02x%02x" % tuple(
-        max(0, min(255, int(round(float(color[k]) * 255))))
-        for k in ("r", "g", "b")
-    )
 
 
 def clean(text: str) -> str:

@@ -1,4 +1,3 @@
-import json
 import pathlib
 import shutil
 from slides.keynote import jxa, patch
@@ -55,7 +54,7 @@ def build(
     script = SCRIPT_CREATE % (
         jxa.literal(jxa.app_name()),
         document,
-        json.dumps(wanted),
+        jxa.literal(wanted),
     )
     result = jxa.run_json(script)
     patch.apply(

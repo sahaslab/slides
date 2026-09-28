@@ -26,5 +26,5 @@ def run_json(script: str) -> object:
     return json.loads(run(script))
 
 
-def literal(value: str) -> str:
+def literal(value: object) -> str:
     return json.dumps(value)

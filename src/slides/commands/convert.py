@@ -3,6 +3,7 @@ import pathlib
 import argparse
 import tempfile
 from slides import readers
+from slides.commands import taken
 from slides.deckwerk import importer
 
 
@@ -47,8 +48,7 @@ def _to_pptx(
 ) -> int:
     from slides.writers import pptx as writer
     out = pathlib.Path(args.output) if args.output else source.with_suffix(".pptx")
-    if out.exists():
-        sys.stderr.write("%s already exists; pass -o with a new path\n" % (out,))
+    if taken(out):
         return 1
     writer.write(readers.read(source), out)
     sys.stderr.write("Builds and transitions do not survive this route\n")
@@ -63,8 +63,7 @@ def _to_keynote(
 ) -> int:
     from slides.keynote import export
     out = pathlib.Path(args.output) if args.output else source.with_suffix(".key")
-    if out.exists():
-        sys.stderr.write("%s already exists; pass -o with a new path\n" % (out,))
+    if taken(out):
         return 1
     if kind == "pptx":
         export.open_and_save(source, out)
@@ -86,8 +85,7 @@ def _to_pdf(
 ) -> int:
     from slides.keynote import export
     out = pathlib.Path(args.output) if args.output else source.with_suffix(".pdf")
-    if out.exists():
-        sys.stderr.write("%s already exists; pass -o with a new path\n" % (out,))
+    if taken(out):
         return 1
     if kind == "deckwerk":
         from slides.writers import pptx as writer
