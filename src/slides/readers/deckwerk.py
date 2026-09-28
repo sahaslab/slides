@@ -2,7 +2,7 @@ import re
 import json
 import pathlib
 from html.parser import HTMLParser
-from slides.model import Build, Run, ColorUse, Deck, Embed, Image, Slide, Table, TextItem
+from slides.model import Build, Run, Shape, ColorUse, Deck, Embed, Image, Slide, Table, TextItem
 
 BREAK_TAGS = {"br", "p", "div", "li", "tr"}
 RGB = re.compile(r"rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)")
@@ -410,6 +410,25 @@ def _slide(
                 value = element.get(key)
                 if isinstance(value, str):
                     _add_color(colors, value, "fill", 0.5)
+            size = element.get("pathSize") or {}
+            slide.shapes.append(Shape(
+                kind=element.get("shape") or "rect",
+                x=float(element.get("x") or 0.0),
+                y=float(element.get("y") or 0.0),
+                w=float(element.get("w") or 0.0),
+                h=float(element.get("h") or 0.0),
+                rot=float(element.get("rot") or 0.0),
+                fill=element.get("fill"),
+                stroke=element.get("stroke"),
+                stroke_width=float(element.get("strokeWidth") or 0.0),
+                radius=float(element.get("radius") or 0.0),
+                path=element.get("path"),
+                path_size=(size["w"], size["h"]) if size else None,
+                arrow_start=bool(element.get("arrowStart")),
+                arrow_end=bool(element.get("arrowEnd")),
+                opacity=float(element.get("opacity") if element.get("opacity") is not None else 1.0),
+                id=element.get("id"),
+            ))
         elif kind in ("web", "video"):
             slide.embeds.append(Embed(
                 kind=kind,

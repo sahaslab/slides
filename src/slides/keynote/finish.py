@@ -9,6 +9,11 @@ from slides.keynote import math
 # CSS text-align to TSWP's paragraph alignment values.
 ALIGNMENT = {"left": "TATvalue0", "right": "TATvalue1", "center": "TATvalue2", "justify": "TATvalue3"}
 NULL_CHARACTER_STYLE = "character-style-null"
+# DeckWerk's one build action, as the build Keynote users reach for first.
+EFFECTS = {"appear": "apple:dissolve"}
+BUILD_DURATION = 0.4
+BUILD_TYPE = 8
+CHUNK_TYPE = 153
 
 
 def finish(
@@ -49,8 +54,12 @@ class Finisher:
         files = self._slide_files()
         for node, want in zip(nodes, slides):
             slide_id = archives[node]["objects"][0]["slide"]["identifier"]
-            self._slide(slide_id, files[slide_id], want)
+            clicks = self._slide(slide_id, files[slide_id], want)
+            if clicks is not None:
+                flags = archives[node]["objects"][0]
+                flags.update({"hasBuilds": True, "hasExplicitBuilds": True, "buildEventCount": clicks})
         self.package["lastObjectIdentifier"] = str(self.next_id - 1)
+        math.dump(self.document, self.index / "Document.iwa.yaml")
         math.dump(self.metadata, self.index / "Metadata.iwa.yaml")
         math.dump(self.stylesheet, self.index / "DocumentStylesheet.iwa.yaml")
 
@@ -68,7 +77,7 @@ class Finisher:
         slide_id: str,
         path: pathlib.Path,
         want: dict
-    ) -> None:
+    ) -> int | None:
         entry = next(c for c in self.package["components"] if c["identifier"] == slide_id)
         data = math.load(path)
         by_id = {a["header"]["identifier"]: a for a in chunk(data)}
@@ -92,7 +101,90 @@ class Finisher:
         external = entry.setdefault("externalReferences", [])
         known = set(e.get("objectIdentifier") for e in external)
         external.extend({"componentIdentifier": self.stylesheet_id, "objectIdentifier": i} for i in dict.fromkeys(used) if i not in known)
+        clicks = self._builds(data, archive, entry, want)
         math.dump(data, path)
+        return clicks
+
+    def _builds(
+        self,
+        data: dict,
+        archive: dict,
+        entry: dict,
+        want: dict
+    ) -> int | None:
+        # Drawables stack in the order the builder made them: images, then
+        # text boxes, then tables. That order names each one's DeckWerk id.
+        if not want.get("builds"):
+            return None
+        made = [o.get("id") for o in want["images"] + want["texts"] + want["tables"]]
+        drawables = [ref["identifier"] for ref in archive["objects"][0].get("drawablesZOrder", [])]
+        if len(made) != len(drawables):
+            raise ValueError("slide has %d drawables but %d were made" % (len(drawables), len(made)))
+        body = archive["objects"][0]
+        body["builds"], body["buildChunks"] = [], []
+        info = archive["header"]["messageInfos"][0].setdefault("objectReferences", [])
+        uuids = entry.setdefault("objectUuidMapEntries", [])
+        clicks = 0
+        for step in want["builds"]:
+            targets = [d for d, source in zip(drawables, made) if source == step["target"]]
+            for index, drawable in enumerate(targets):
+                trigger = step["trigger"] if index == 0 else "withPrev"
+                clicks += trigger == "click"
+                build, chunk = self._build_pair(drawable, step, trigger)
+                data["chunks"][0]["archives"].extend([build, chunk])
+                body["builds"].append({"identifier": build["header"]["identifier"]})
+                body["buildChunks"].append({"identifier": chunk["header"]["identifier"]})
+                info.extend([build["header"]["identifier"], chunk["header"]["identifier"]])
+                uuids.extend({"identifier": a["header"]["identifier"], "uuid": _uuid()} for a in (build, chunk))
+        return clicks
+
+    def _build_pair(
+        self,
+        drawable: str,
+        step: dict,
+        trigger: str
+    ) -> tuple[dict, dict]:
+        build_id, chunk_id = str(self.next_id), str(self.next_id + 1)
+        self.next_id += 2
+        identity = _uuid()
+        build = {
+            "header": {"_pbtype": "TSP.ArchiveInfo", "identifier": build_id, "messageInfos": [{"type": BUILD_TYPE, "version": [1, 0, 5]}]},
+            "objects": [{
+                "_pbtype": "KN.BuildArchive",
+                "drawable": {"identifier": drawable},
+                "delivery": "All at Once",
+                "duration": 0.0,
+                "chunkIdSeed": 1,
+                "attributes": {
+                    "eventTrigger": 1,
+                    "ChartRotation3D": 60.0,
+                    "animationAttributes": {
+                        "animationType": "In",
+                        "effect": EFFECTS.get(step["effect"], EFFECTS["appear"]),
+                        "duration": BUILD_DURATION,
+                        "delay": 0.0,
+                        "randomNumberSeed": random.getrandbits(31),
+                        "writingDirectionIsRtl": False,
+                    },
+                },
+            }],
+        }
+        chunk = {
+            "header": {"_pbtype": "TSP.ArchiveInfo", "identifier": chunk_id, "messageInfos": [{"type": CHUNK_TYPE, "version": [1, 0, 5]}]},
+            "objects": [{
+                "_pbtype": "KN.BuildChunkArchive",
+                "build": {"identifier": build_id},
+                "automatic": trigger != "click",
+                # On click and after the previous build both follow it;
+                # starting with the previous one does not.
+                "referent": trigger != "withPrev",
+                "delay": float(step.get("delay") or 0.0),
+                "duration": BUILD_DURATION,
+                "buildChunkIdentifier": {"buildChunkId": 1, "buildId": identity},
+                "buildId": identity,
+            }],
+        }
+        return build, chunk
 
     def _paragraphs(
         self,
@@ -237,6 +329,10 @@ def chunk(data: dict) -> list:
 
 def kind(archive: dict) -> str:
     return archive["objects"][0].get("_pbtype", "") if archive.get("objects") else ""
+
+
+def _uuid() -> dict:
+    return {"lower": str(random.getrandbits(64)), "upper": str(random.getrandbits(64))}
 
 
 def _colour(value: str) -> dict:

@@ -7,7 +7,7 @@ import subprocess
 from slides import color, theme
 from slides.emit import fonts
 from slides.keynote import finish, jxa, math
-from slides.model import Deck, Image, Run, Slide, Table, TextItem
+from slides.model import Deck, Image, Run, Shape, Slide, Table, TextItem
 from slides.writers import pptx as layout
 
 # Keynote builds the deck itself, so the file it saves is one it can open.
@@ -213,30 +213,36 @@ class Spec:
         for index, item in enumerate(slide.items):
             role = "title" if item.role == "title" else "body"
             fallback = layout._scaled(layout.TITLE_BOX, self.deck) if role == "title" else layout._body_slot(index, len(slide.items), self.deck)
-            texts.append(self._text(item, layout._geometry(item) or fallback, styles[role]))
-        images = [box for box in (self._image(image) for image in slide.images) if box]
+            texts.append(dict(self._text(item, layout._geometry(item) or fallback, styles[role]), id=item.id))
+        # Shapes go down first, under pictures and text, as DeckWerk's cards
+        # and rules sit under what they frame.
+        images = [dict(self._shape(shape), id=shape.id) for shape in slide.shapes]
+        for image in slide.images:
+            box = self._image(image)
+            if box:
+                images.append(dict(box, id=image.id))
         for embed in slide.embeds:
             movie = layout._resolve(self.deck, embed.src) if embed.kind == "video" else None
             if movie is not None and movie.suffix.lower() in PLAYABLE:
                 # Keynote makes a movie from a video file handed over as an image.
                 x, y, w, h = layout._geometry(embed) or layout._scaled(layout.MEDIA_BOX, self.deck)
-                images.append({"path": str(movie.resolve()), "x": x, "y": y, "w": w, "h": h})
+                images.append({"path": str(movie.resolve()), "x": x, "y": y, "w": w, "h": h, "id": embed.id})
                 continue
             poster = self._image(Image(path=embed.poster, x=embed.x, y=embed.y, w=embed.w, h=embed.h))
             if poster:
-                images.append(poster)
+                images.append(dict(poster, id=embed.id))
             else:
                 box = layout._geometry(embed) or layout._scaled(layout.MEDIA_BOX, self.deck)
-                texts.append(self._text(TextItem(text=embed.label()), box, styles["body"]))
+                texts.append(dict(self._text(TextItem(text=embed.label()), box, styles["body"]), id=embed.id))
         tables = []
         for offset, table in enumerate(slide.tables):
             if not table.rows:
                 continue
             if any("$" in str(cell) for row in table.rows for cell in row):
                 # Keynote tables cannot hold equations; a grid of text boxes can.
-                texts.extend(self._grid(table, offset, styles["table"]))
+                texts.extend(dict(cell, id=table.id) for cell in self._grid(table, offset, styles["table"]))
             else:
-                tables.append(self._table(table, offset, styles["table"], ground))
+                tables.append(dict(self._table(table, offset, styles["table"], ground), id=table.id))
         return {
             "background": ground,
             "texts": texts,
@@ -245,6 +251,10 @@ class Spec:
             "notes": slide.notes,
             "transition": slide.transition,
             "transitionDuration": slide.transition_duration,
+            "builds": [
+                {"target": b.target, "effect": b.effect, "trigger": b.trigger, "delay": b.delay}
+                for b in slide.builds
+            ],
         }
 
     def _text(
@@ -320,6 +330,16 @@ class Spec:
             "w": width * scale,
             "h": height * scale,
         }
+
+    def _shape(self, shape: Shape) -> dict:
+        # Keynote's scripting can neither fill a shape nor make an ellipse or
+        # arrow, but it places an SVG as vector art: draw the shape as one.
+        self.baked += 1
+        path = self.work / ("shape-%d.svg" % (self.baked,))
+        svg, box = _shape_svg(shape)
+        path.write_text(svg)
+        x, y, w, h = box
+        return {"path": str(path), "x": x, "y": y, "w": w, "h": h}
 
     def _bake(
         self,
@@ -446,6 +466,41 @@ class Faces:
             same = [m for m in members if bool(m[2] & ITALIC_TRAIT) == italic] or members
             return min(same, key=lambda m: (abs(m[1] - wanted), m[0]))[0]
         return "HelveticaNeue"
+
+
+def _shape_svg(shape: Shape) -> tuple[str, tuple[float, float, float, float]]:
+    import math as maths
+    w, h = max(shape.w, 1.0), max(shape.h, 1.0)
+    pad = shape.stroke_width * 3.0 + 2.0
+    fill = shape.fill or "none"
+    stroke = shape.stroke or "none"
+    width = shape.stroke_width if shape.stroke else 0.0
+    if shape.kind == "ellipse":
+        body = "<ellipse cx=\"0\" cy=\"0\" rx=\"%s\" ry=\"%s\"/>" % (w / 2.0, h / 2.0)
+    elif shape.kind in ("line", "arrow"):
+        body = "<line x1=\"%s\" y1=\"0\" x2=\"%s\" y2=\"0\"/>" % (-w / 2.0, w / 2.0)
+        head = max(width * 3.0, 8.0)
+        tips = ([(w / 2.0, 1.0)] if shape.arrow_end else []) + ([(-w / 2.0, -1.0)] if shape.arrow_start else [])
+        for tip, direction in tips:
+            back = tip - direction * head
+            body += "<polygon points=\"%s,0 %s,%s %s,%s\" fill=\"%s\" stroke=\"none\"/>" % (tip, back, -head / 2.0, back, head / 2.0, stroke)
+        fill = "none"
+    elif shape.kind == "path" and shape.path:
+        sx, sy = (w / shape.path_size[0], h / shape.path_size[1]) if shape.path_size else (1.0, 1.0)
+        body = "<path transform=\"translate(%s %s) scale(%s %s)\" d=\"%s\"/>" % (-w / 2.0, -h / 2.0, sx, sy, shape.path)
+    else:
+        body = "<rect x=\"%s\" y=\"%s\" width=\"%s\" height=\"%s\" rx=\"%s\"/>" % (-w / 2.0, -h / 2.0, w, h, shape.radius)
+    if shape.rot:
+        side = maths.hypot(w, h) + 2.0 * pad
+        canvas = (side, side)
+    else:
+        canvas = (w + 2.0 * pad, h + 2.0 * pad)
+    cx, cy = shape.x + shape.w / 2.0, shape.y + shape.h / 2.0
+    svg = (
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"%s\" height=\"%s\" viewBox=\"0 0 %s %s\">"
+        "<g transform=\"translate(%s %s) rotate(%s)\" fill=\"%s\" stroke=\"%s\" stroke-width=\"%s\" opacity=\"%s\">%s</g></svg>"
+    ) % (canvas[0], canvas[1], canvas[0], canvas[1], canvas[0] / 2.0, canvas[1] / 2.0, shape.rot, fill, stroke, width, shape.opacity, body)
+    return svg, (cx - canvas[0] / 2.0, cy - canvas[1] / 2.0, canvas[0], canvas[1])
 
 
 def _line_height(

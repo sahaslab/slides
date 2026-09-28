@@ -50,6 +50,28 @@ class Image:
 
 
 @dataclass
+class Shape:
+    # A drawn shape: kind is rect, ellipse, line, arrow or path. Colours are
+    # CSS values; rot is degrees clockwise about the box's centre.
+    kind: str
+    x: float = 0.0
+    y: float = 0.0
+    w: float = 0.0
+    h: float = 0.0
+    rot: float = 0.0
+    fill: str | None = None
+    stroke: str | None = None
+    stroke_width: float = 0.0
+    radius: float = 0.0
+    path: str | None = None
+    path_size: tuple[float, float] | None = None
+    arrow_start: bool = False
+    arrow_end: bool = False
+    opacity: float = 1.0
+    id: str | None = None
+
+
+@dataclass
 class Embed:
     kind: str
     src: str
@@ -92,6 +114,7 @@ class Slide:
     tables: list[Table] = field(default_factory=list)
     images: list[Image] = field(default_factory=list)
     embeds: list[Embed] = field(default_factory=list)
+    shapes: list[Shape] = field(default_factory=list)
     notes: str = ""
     background: str | None = None
     transition: str | None = None
