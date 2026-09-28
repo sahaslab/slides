@@ -60,9 +60,9 @@ scripting cannot, and `slides math` turns `$...$` into native equations.
 What comes across: each text box's own font, weight, size, colour, alignment,
 line and paragraph spacing, and coloured or bold spans inside it; slide
 backgrounds; images with their crops, circle masks and fit; shapes (as vector
-art); videos as movies; tables (as text boxes when their cells hold math,
+art); videos as movies that autoplay and loop as they did; tables (as text boxes when their cells hold math,
 which Keynote tables cannot); presenter notes; morphs as Magic Move; and every
-timeline step as a Keynote build (appear plays as Dissolve). A 68-slide deck
+timeline step as an ordinary, editable Keynote build (appear plays as Dissolve). A 68-slide deck
 takes about a minute.
 
 A `.pptx` source is opened by Keynote directly. `-f pdf` builds the Keynote

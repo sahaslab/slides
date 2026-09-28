@@ -114,35 +114,45 @@ class Finisher:
     ) -> int | None:
         # Drawables stack in the order the builder made them: images, then
         # text boxes, then tables. That order names each one's DeckWerk id.
-        if not want.get("builds"):
+        body = archive["objects"][0]
+        body.setdefault("builds", [])
+        body.setdefault("buildChunks", [])
+        if not want.get("builds") and not body["buildChunks"]:
             return None
-        made = [o.get("id") for o in want["images"] + want["texts"] + want["tables"]]
-        drawables = [ref["identifier"] for ref in archive["objects"][0].get("drawablesZOrder", [])]
+        made = want["images"] + want["texts"] + want["tables"]
+        drawables = [ref["identifier"] for ref in body.get("drawablesZOrder", [])]
         if len(made) != len(drawables):
             raise ValueError("slide has %d drawables but %d were made" % (len(drawables), len(made)))
-        body = archive["objects"][0]
-        body["builds"], body["buildChunks"] = [], []
+        by_id = {a["header"]["identifier"]: a for a in data["chunks"][0]["archives"]}
+        # Keynote gives each movie it makes a Start Movie build on click; one
+        # DeckWerk autoplays starts with the slide instead.
+        source = dict(zip(drawables, made))
+        for ref in body["buildChunks"]:
+            own = by_id[ref["identifier"]]["objects"][0]
+            if source[by_id[own["build"]["identifier"]]["objects"][0]["drawable"]["identifier"]].get("autoplay"):
+                own["automatic"] = True
         info = archive["header"]["messageInfos"][0].setdefault("objectReferences", [])
         uuids = entry.setdefault("objectUuidMapEntries", [])
-        clicks = 0
         for step in want["builds"]:
-            targets = [d for d, source in zip(drawables, made) if source == step["target"]]
+            targets = [d for d in drawables if source[d].get("id") == step["target"]]
             for index, drawable in enumerate(targets):
                 trigger = step["trigger"] if index == 0 else "withPrev"
-                clicks += trigger == "click"
-                build, chunk = self._build_pair(drawable, step, trigger)
+                build, chunk = self._build_pair(drawable, step, trigger, kind(by_id[drawable]) == "TSWP.ShapeInfoArchive")
                 data["chunks"][0]["archives"].extend([build, chunk])
                 body["builds"].append({"identifier": build["header"]["identifier"]})
                 body["buildChunks"].append({"identifier": chunk["header"]["identifier"]})
                 info.extend([build["header"]["identifier"], chunk["header"]["identifier"]])
-                uuids.extend({"identifier": a["header"]["identifier"], "uuid": _uuid()} for a in (build, chunk))
-        return clicks
+                # A chunk finds its build by the build's UUID; chunks have none.
+                uuids.append({"identifier": build["header"]["identifier"], "uuid": chunk["objects"][0]["buildId"]})
+                by_id[chunk["header"]["identifier"]] = chunk
+        return sum(not by_id[ref["identifier"]]["objects"][0]["automatic"] for ref in body["buildChunks"])
 
     def _build_pair(
         self,
         drawable: str,
         step: dict,
-        trigger: str
+        trigger: str,
+        text: bool
     ) -> tuple[dict, dict]:
         build_id, chunk_id = str(self.next_id), str(self.next_id + 1)
         self.next_id += 2
@@ -184,6 +194,8 @@ class Finisher:
                 "buildId": identity,
             }],
         }
+        if text:
+            build["objects"][0]["attributes"].update({"customDeliveryOption": "kDeliveryOptionForward", "customTextDelivery": "kTextDeliveryByObject"})
         return build, chunk
 
     def _paragraphs(

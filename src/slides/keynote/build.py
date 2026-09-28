@@ -64,10 +64,15 @@ for (var n = 0; n < spec.slides.length; n++) {
     doc.slides.push(app.Slide({baseLayout: blank}));
     slide = doc.slides[doc.slides.length - 1];
   }
+  var movies = 0;
   for (var i = 0; i < want.images.length; i++) {
     var img = want.images[i];
     where = "slide " + (n + 1) + ", image " + (i + 1);
     slide.images.push(app.Image({file: Path(img.path), position: {x: img.x, y: img.y}, width: img.w, height: img.h}));
+    if (img.movie) {
+      if (img.loop) slide.movies[movies].repetitionMethod = "loop";
+      movies++;
+    }
   }
   // New text items land ahead of the layout's hidden placeholders, so the
   // i-th one made here is textItems[i], not the last in the list.
@@ -226,7 +231,7 @@ class Spec:
             if movie is not None and movie.suffix.lower() in PLAYABLE:
                 # Keynote makes a movie from a video file handed over as an image.
                 x, y, w, h = layout._geometry(embed) or layout._scaled(layout.MEDIA_BOX, self.deck)
-                images.append({"path": str(movie.resolve()), "x": x, "y": y, "w": w, "h": h, "id": embed.id})
+                images.append({"path": str(movie.resolve()), "x": x, "y": y, "w": w, "h": h, "movie": True, "autoplay": embed.autoplay, "loop": embed.loop, "id": embed.id})
                 continue
             poster = self._image(Image(path=embed.poster, x=embed.x, y=embed.y, w=embed.w, h=embed.h))
             if poster:

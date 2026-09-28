@@ -439,6 +439,8 @@ def _slide(
                 y=_number(element.get("y")),
                 w=_number(element.get("w")),
                 h=_number(element.get("h")),
+                autoplay=bool(element.get("autoplay")),
+                loop=bool(element.get("loop")),
                 id=element.get("id"),
             ))
         elif kind == "html":

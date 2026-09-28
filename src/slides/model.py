@@ -81,6 +81,8 @@ class Embed:
     y: float | None = None
     w: float | None = None
     h: float | None = None
+    autoplay: bool = False
+    loop: bool = False
     id: str | None = None
 
     def label(self) -> str:

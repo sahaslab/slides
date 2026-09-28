@@ -1,7 +1,7 @@
 import shutil
 import pathlib
 from slides.readers import read
-from slides.keynote import build, finish
+from slides.keynote import build, finish, math
 from slides.model import Shape
 
 FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "mini_deckwerk"
@@ -48,3 +48,46 @@ def test_finish_paints_backgrounds_into_the_saved_deck(tmp_path):
     shutil.copyfile(build.BLANK, deck)
     finish.finish(deck, [{"background": "#0d1e1c", "texts": [], "images": [], "tables": [], "builds": []}])
     assert read(deck).slides[0].background == "#0d1e1c"
+
+
+def a_slide(tmp_path: pathlib.Path) -> tuple:
+    # blank.key's one slide, holding a single stand-in picture as drawable 999.
+    unpacked = tmp_path / "deck"
+    math.unpack_deck(math.zipped(build.BLANK, tmp_path), unpacked)
+    finisher = finish.Finisher(unpacked)
+    data = math.load(next(iter(finisher._slide_files().values())))
+    slide = next(a for a in finish.chunk(data) if finish.kind(a) == "KN.SlideArchive")
+    slide["objects"][0]["drawablesZOrder"] = [{"identifier": "999"}]
+    finish.chunk(data).append({"header": {"identifier": "999"}, "objects": [{"_pbtype": "TSD.ImageArchive"}]})
+    entry = next(c for c in finisher.package["components"] if c["identifier"] == slide["header"]["identifier"])
+    return finisher, data, slide, entry
+
+
+STEP = {"target": "a", "effect": "appear", "trigger": "click", "delay": 0.0}
+
+
+def test_each_build_chunk_names_its_builds_uuid(tmp_path):
+    # Keynote finds a chunk's build by the build's object UUID; a mismatch
+    # leaves the build playing but impossible to edit or delete.
+    finisher, data, slide, entry = a_slide(tmp_path)
+    finisher._builds(data, slide, entry, {"images": [{"id": "a"}], "texts": [], "tables": [], "builds": [STEP, STEP]})
+    uuids = {e["identifier"]: e["uuid"] for e in entry["objectUuidMapEntries"]}
+    chunks = [a for a in finish.chunk(data) if finish.kind(a) == "KN.BuildChunkArchive"]
+    assert len(chunks) == 2
+    for made in chunks:
+        assert made["header"]["identifier"] not in uuids
+        assert made["objects"][0]["buildId"] == uuids[made["objects"][0]["build"]["identifier"]]
+
+
+def test_keynotes_own_movie_build_stays_and_autoplays(tmp_path):
+    # Keynote gives each movie it makes a Start Movie build on click.
+    finisher, data, slide, entry = a_slide(tmp_path)
+    own, own_chunk = finisher._build_pair("999", STEP, "click", False)
+    finish.chunk(data).extend([own, own_chunk])
+    slide["objects"][0]["builds"] = [{"identifier": own["header"]["identifier"]}]
+    slide["objects"][0]["buildChunks"] = [{"identifier": own_chunk["header"]["identifier"]}]
+    clicks = finisher._builds(data, slide, entry, {"images": [{"id": "a", "autoplay": True}], "texts": [], "tables": [], "builds": [STEP]})
+    listed = [b["identifier"] for b in slide["objects"][0]["builds"]]
+    assert listed[0] == own["header"]["identifier"] and len(listed) == 2
+    assert own_chunk["objects"][0]["automatic"] is True
+    assert clicks == 1
