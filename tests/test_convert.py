@@ -1,6 +1,10 @@
+import pathlib
 import argparse
 from slides.deckwerk import importer
 from slides.commands import convert
+from slides.keynote import export
+
+FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "mini_deckwerk"
 
 
 def an_args(**kw) -> argparse.Namespace:
@@ -85,3 +89,146 @@ def test_allows_a_brand_new_default_output(
     )
 
     assert convert.run(an_args(target=str(source))) == 0
+
+
+def test_keynote_route_stages_a_pptx_for_a_deckwerk_source(
+    tmp_path,
+    monkeypatch
+):
+    seen = {}
+    monkeypatch.setattr(
+        export,
+        "open_and_save",
+        lambda source, out: seen.update(source=str(source), out=str(out)),
+    )
+    out = tmp_path / "deck.key"
+
+    code = convert.run(
+        an_args(target=str(FIXTURE), format="keynote", output=str(out))
+    )
+
+    assert code == 0
+    assert seen["out"] == str(out)
+    assert seen["source"].endswith(".pptx")
+    assert not pathlib.Path(seen["source"]).exists()
+
+
+def test_keynote_route_passes_a_pptx_source_directly(
+    tmp_path,
+    monkeypatch
+):
+    source = tmp_path / "deck.pptx"
+    source.touch()
+    seen = {}
+    monkeypatch.setattr(
+        export,
+        "open_and_save",
+        lambda source, out: seen.update(source=str(source), out=str(out)),
+    )
+    out = tmp_path / "deck.key"
+
+    code = convert.run(
+        an_args(target=str(source), format="keynote", output=str(out))
+    )
+
+    assert code == 0
+    assert seen["source"] == str(source)
+
+
+def test_keynote_route_refuses_an_existing_output(
+    tmp_path,
+    monkeypatch,
+    capsys
+):
+    source = tmp_path / "deck.pptx"
+    source.touch()
+    out = tmp_path / "deck.key"
+    out.touch()
+    called = []
+    monkeypatch.setattr(export, "open_and_save", lambda *a, **kw: called.append(1))
+
+    code = convert.run(
+        an_args(target=str(source), format="keynote", output=str(out))
+    )
+
+    assert code != 0
+    assert called == []
+    assert "already exists" in capsys.readouterr().err
+
+
+def test_pdf_route_from_a_keynote_source_skips_staging(
+    tmp_path,
+    monkeypatch
+):
+    source = tmp_path / "deck.key"
+    source.touch()
+    seen = {}
+    monkeypatch.setattr(
+        export,
+        "export_pdf",
+        lambda source, out: seen.update(source=str(source), out=str(out)),
+    )
+    out = tmp_path / "deck.pdf"
+
+    code = convert.run(an_args(target=str(source), format="pdf", output=str(out)))
+
+    assert code == 0
+    assert seen["source"] == str(source)
+
+
+def test_pdf_route_from_a_pptx_source_skips_staging(
+    tmp_path,
+    monkeypatch
+):
+    source = tmp_path / "deck.pptx"
+    source.touch()
+    seen = {}
+    monkeypatch.setattr(
+        export,
+        "export_pdf",
+        lambda source, out: seen.update(source=str(source), out=str(out)),
+    )
+    out = tmp_path / "deck.pdf"
+
+    code = convert.run(an_args(target=str(source), format="pdf", output=str(out)))
+
+    assert code == 0
+    assert seen["source"] == str(source)
+
+
+def test_pdf_route_from_a_deckwerk_source_stages_a_pptx(
+    tmp_path,
+    monkeypatch
+):
+    seen = {}
+    monkeypatch.setattr(
+        export,
+        "export_pdf",
+        lambda source, out: seen.update(source=str(source), out=str(out)),
+    )
+    out = tmp_path / "deck.pdf"
+
+    code = convert.run(an_args(target=str(FIXTURE), format="pdf", output=str(out)))
+
+    assert code == 0
+    assert seen["source"].endswith(".pptx")
+    assert not pathlib.Path(seen["source"]).exists()
+
+
+def test_pdf_route_refuses_an_existing_output(
+    tmp_path,
+    monkeypatch,
+    capsys
+):
+    source = tmp_path / "deck.key"
+    source.touch()
+    out = tmp_path / "deck.pdf"
+    out.touch()
+    called = []
+    monkeypatch.setattr(export, "export_pdf", lambda *a, **kw: called.append(1))
+
+    code = convert.run(an_args(target=str(source), format="pdf", output=str(out)))
+
+    assert code != 0
+    assert called == []
+    assert "already exists" in capsys.readouterr().err
