@@ -35,6 +35,23 @@ class TextStyle:
     font: str
 
 
+@dataclass
+class SvgSupport:
+    # Without rsvg-convert, SVG pictures are left out rather than fatal:
+    # most machines have no librsvg.
+    available: bool
+    skipped: int = 0
+
+    def allows(
+        self,
+        path: pathlib.Path
+    ) -> bool:
+        if self.available or not _is_svg(path):
+            return True
+        self.skipped += 1
+        return False
+
+
 def write(
     deck: Deck,
     path: str | pathlib.Path
@@ -44,34 +61,41 @@ def write(
     presentation.slide_width = _emu(deck.width)
     presentation.slide_height = _emu(deck.height)
     palette = theme.extract(deck)
-    styles = _styles(deck, palette)
-    rasterise = shutil.which(RASTERISER) is not None
-    if not rasterise:
-        _warn_svg_skipped(deck)
+    svgs = SvgSupport(available=shutil.which(RASTERISER) is not None)
+    styles: dict[str, dict[str, TextStyle]] = {}
     layout = presentation.slide_layouts[TITLE_ONLY_LAYOUT]
     for slide in deck.slides:
+        ground = slide.background or palette.background
+        if ground not in styles:
+            styles[ground] = _styles(deck, palette, ground)
         target = presentation.slides.add_slide(layout)
-        _slide(target, slide, deck, palette.background, styles, rasterise)
+        _slide(target, slide, deck, ground, styles[ground], svgs)
+    if svgs.skipped:
+        _warn_svg_skipped(svgs.skipped)
     presentation.save(str(path))
 
 
 def _styles(
     deck: Deck,
-    palette: theme.DeckTheme
+    palette: theme.DeckTheme,
+    ground: str
 ) -> dict[str, TextStyle]:
+    # Colours resolve against the colour this slide is painted with, which
+    # need not be the deck's majority background the theme was built on.
+    text = color.with_contrast(palette.foreground, ground, theme.TEXT_CONTRAST)
     accent = palette.accents[0]
-    legible = color.contrast(accent, palette.background) >= theme.TEXT_CONTRAST
+    legible = color.contrast(accent, ground) >= theme.TEXT_CONTRAST
     title_font = fonts.primary_family(palette.fonts.get("title", ""), "")
     body_font = fonts.primary_family(palette.fonts.get("body", ""), "")
     body_size = deck.height * BODY_SCALE
     return {
         "title": TextStyle(
             size=round(deck.height * TITLE_SCALE),
-            color=accent if legible else palette.foreground,
+            color=accent if legible else text,
             font=title_font,
         ),
-        "body": TextStyle(size=round(body_size), color=palette.foreground, font=body_font),
-        "table": TextStyle(size=round(body_size * TABLE_SCALE), color=palette.foreground, font=body_font),
+        "body": TextStyle(size=round(body_size), color=text, font=body_font),
+        "table": TextStyle(size=round(body_size * TABLE_SCALE), color=text, font=body_font),
     }
 
 
@@ -79,16 +103,16 @@ def _slide(
     target: "pptx.slide.Slide",
     slide: Slide,
     deck: Deck,
-    background: str,
+    ground: str,
     styles: dict[str, TextStyle],
-    rasterise: bool
+    svgs: SvgSupport
 ) -> None:
     from pptx.enum.text import PP_ALIGN
-    _paint(target, slide.background or background)
+    _paint(target, ground)
     for image in slide.images:
-        _image(target, image, slide.number, deck, rasterise)
+        _image(target, image, slide.number, deck, svgs)
     for embed in slide.embeds:
-        _embed(target, embed, deck, styles["body"])
+        _embed(target, embed, deck, styles["body"], svgs)
     heading = next((item for item in slide.items if item.role == "title"), None)
     if heading is None and slide.title:
         heading = TextItem(text=slide.title, role="title")
@@ -196,13 +220,13 @@ def _image(
     image: Image,
     number: int,
     deck: Deck,
-    rasterise: bool
+    svgs: SvgSupport
 ) -> None:
     path = _resolve(deck, image.path)
     if path is None:
         sys.stderr.write("Slide %d: skipped image %s, not a file\n" % (number, image.path))
         return
-    if _is_svg(path) and not rasterise:
+    if not svgs.allows(path):
         return
     _picture(target, path, _geometry(image) or _scaled(MEDIA_BOX, deck))
 
@@ -211,12 +235,13 @@ def _embed(
     target: "pptx.slide.Slide",
     embed: Embed,
     deck: Deck,
-    style: TextStyle
+    style: TextStyle,
+    svgs: SvgSupport
 ) -> None:
     from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
     box = _geometry(embed) or _scaled(MEDIA_BOX, deck)
     poster = _resolve(deck, embed.poster)
-    if poster is None:
+    if poster is None or not svgs.allows(poster):
         shape = _text_box(target, embed.label(), box, style, PP_ALIGN.CENTER)
         shape.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
     else:
@@ -260,15 +285,10 @@ def _picture_source(
     return str(path)
 
 
-def _warn_svg_skipped(deck: Deck) -> None:
-    # Without the rasteriser SVG images are left out, not fatal: most
-    # machines have no librsvg.
-    paths = [_resolve(deck, image.path) for slide in deck.slides for image in slide.images]
-    count = sum(1 for path in paths if path is not None and _is_svg(path))
-    if count:
-        noun = "image" if count == 1 else "images"
-        fix = "install librsvg (brew install librsvg) for %s" % (RASTERISER,)
-        sys.stderr.write("%d SVG %s skipped: %s\n" % (count, noun, fix))
+def _warn_svg_skipped(count: int) -> None:
+    noun = "image" if count == 1 else "images"
+    fix = "install librsvg (brew install librsvg) for %s" % (RASTERISER,)
+    sys.stderr.write("%d SVG %s skipped: %s\n" % (count, noun, fix))
 
 
 def _is_svg(path: pathlib.Path) -> bool:
