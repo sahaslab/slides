@@ -239,3 +239,62 @@ instructed.
 7. **Nothing opened in a real presentation app.** LibreOffice is absent and
    Keynote must not be launched. Validity rests on python-pptx and the pptx reader
    re-reading the file, plus my own matplotlib rendering of the shapes.
+
+## Fix round 1
+
+This round started from `git merge --ff-only build-slides-cli` (fast-forward to
+343dc59). convert.py and readers/deckwerk.py were not touched.
+
+1. **A missing `rsvg-convert` no longer kills the conversion.**
+   - `write` calls `shutil.which(RASTERISER)` once.
+   - When it returns nothing, `_warn_svg_skipped` counts the images whose path
+     resolves to an `.svg` file and writes one stderr line, for example
+     `27 SVG images skipped: install librsvg (brew install librsvg) for rsvg-convert`.
+     It says "image" when the count is 1.
+   - `_image` then skips those SVGs, and the conversion carries on.
+   - Missing files still get their own "not a file" line, as before.
+   - rsvg-convert is still the rasteriser.
+   - Test: `test_without_rsvg_convert_svg_images_are_skipped_with_one_stderr_line`
+     monkeypatches `shutil.which` to return None. It uses 2 SVGs on two slides plus
+     one PNG, and asserts the exact stderr line and 1/0 pictures on the two slides.
+   - Real deck with `PATH=/usr/bin:/bin`, so `rsvg-convert` is not found: the exact
+     27-image line, exit 0, and 68 slides with 5 pictures (3 raster images and 2
+     posters) and 4 links. With `rsvg-convert` available: 32 pictures, as before.
+   - SVG posters are not covered. DeckWerk writes its posters as PNG, and the
+     ruling was about images.
+2. **Shrink on overflow.**
+   - `_fill` sets `frame.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE` (normAutofit)
+     on every text frame it writes: the title placeholder, body boxes, embed labels
+     and table cells. This replaces python-pptx's default text-box `spAutoFit`,
+     which grew the shape instead of shrinking the text.
+   - `fit_text()` is not used.
+   - Test: `test_every_text_frame_shrinks_on_overflow` checks every text frame and
+     table cell of the converted DeckWerk fixture.
+   - Real deck: all 275 text frames and 108 table cells carry normAutofit.
+   - Caveat for the live check: normAutofit is only a flag. python-pptx writes no
+     `fontScale`, so the application computes the shrink itself. PowerPoint is
+     known to apply it only when it re-lays out the text, which may not happen
+     until the text is edited. Whether Keynote honours it on import is untested
+     here, and is part of the controller's live check.
+3. **Label logic in one place.**
+   - `Embed.label() -> str` is now on the model in `src/slides/model.py`.
+   - `writers/markdown.py`'s `_link` is `"[%s](%s)" % (embed.label(), embed.src)`,
+     and its unused `pathlib` import is gone.
+   - `writers/pptx.py` uses `embed.label()`, and `_label` is deleted.
+   - The Markdown output is byte-identical: the existing embed tests pass, and the
+     real deck's Markdown matches the old `_link` exactly (4 embed links).
+   - Test: `test_the_embed_label_is_shared_with_the_markdown_writer`.
+
+TDD:
+- **RED.** All 3 new tests failed. The SVG test got empty stderr, because the real
+  rasteriser ran. The autofit test failed with `all(...)` returning False. The
+  label test failed with `AttributeError: 'Embed' object has no attribute 'label'`.
+- **GREEN.** `PYTHONPATH=src python -m pytest -q` gives 218 passed (19 in
+  tests/test_writer_pptx.py).
+
+Files changed this round:
+- `src/slides/writers/pptx.py`
+- `src/slides/model.py`
+- `src/slides/writers/markdown.py`
+- `tests/test_writer_pptx.py`
+- this report

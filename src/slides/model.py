@@ -1,3 +1,4 @@
+import pathlib
 from dataclasses import dataclass, field
 
 
@@ -36,6 +37,11 @@ class Embed:
     y: float | None = None
     w: float | None = None
     h: float | None = None
+
+    def label(self) -> str:
+        name = self.title or pathlib.PurePosixPath(self.src).name
+        kind = "Interactive" if self.kind == "web" else "Video"
+        return "%s: %s" % (kind, name)
 
 
 @dataclass

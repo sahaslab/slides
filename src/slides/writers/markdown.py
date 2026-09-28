@@ -1,4 +1,3 @@
-import pathlib
 from slides.model import Deck, Embed, Slide
 
 
@@ -60,9 +59,7 @@ def _row(
 
 
 def _link(embed: Embed) -> str:
-    name = embed.title or pathlib.PurePosixPath(embed.src).name
-    label = "Interactive" if embed.kind == "web" else "Video"
-    return "[%s: %s](%s)" % (label, name, embed.src)
+    return "[%s](%s)" % (embed.label(), embed.src)
 
 
 def _quote(notes: str) -> str:

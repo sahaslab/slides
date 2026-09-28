@@ -5,11 +5,13 @@ import pptx
 import pytest
 import PIL.Image
 from pptx.enum.shapes import MSO_SHAPE_TYPE
+from pptx.enum.text import MSO_AUTO_SIZE
 from slides import color, theme
 from slides.commands import convert
-from slides.model import ColorUse, Deck, Image, Slide, Table, TextItem
+from slides.model import ColorUse, Deck, Embed, Image, Slide, Table, TextItem
 from slides.readers import deckwerk
 from slides.readers.pptx import read
+from slides.writers import markdown
 from slides.writers.pptx import write
 
 FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "mini_deckwerk"
@@ -180,9 +182,56 @@ def test_svg_images_are_rasterised(tmp_path: pathlib.Path) -> None:
     _assert_one_image_fills_its_box(tmp_path, "figure.svg")
 
 
+def test_without_rsvg_convert_svg_images_are_skipped_with_one_stderr_line(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture
+) -> None:
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    (tmp_path / "one.svg").write_text(SVG)
+    (tmp_path / "two.svg").write_text(SVG)
+    PIL.Image.new("RGB", (40, 20), "#c83c3c").save(tmp_path / "photo.png")
+    deck = Deck(
+        title="Figures",
+        source=str(tmp_path),
+        slides=[
+            Slide(number=1, images=[Image(path="one.svg"), Image(path="photo.png")]),
+            Slide(number=2, images=[Image(path="two.svg")]),
+        ],
+    )
+    out = tmp_path / "out.pptx"
+    write(deck, out)
+    assert capsys.readouterr().err == (
+        "2 SVG images skipped: install librsvg (brew install librsvg) for rsvg-convert\n"
+    )
+    back = read(out)
+    assert [len(slide.images) for slide in back.slides] == [1, 0]
+
+
 def test_webp_images_are_re_encoded(tmp_path: pathlib.Path) -> None:
     PIL.Image.new("RGB", (40, 20), "#c83c3c").save(tmp_path / "photo.webp")
     _assert_one_image_fills_its_box(tmp_path, "photo.webp")
+
+
+def test_every_text_frame_shrinks_on_overflow(tmp_path: pathlib.Path) -> None:
+    out = tmp_path / "out.pptx"
+    write(deckwerk.read(FIXTURE), out)
+    frames = []
+    for slide in pptx.Presentation(str(out)).slides:
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                frames.append(shape.text_frame)
+            if shape.has_table:
+                frames += [cell.text_frame for row in shape.table.rows for cell in row.cells]
+    assert len(frames) > 5
+    assert all(frame.auto_size == MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE for frame in frames)
+
+
+def test_the_embed_label_is_shared_with_the_markdown_writer() -> None:
+    embed = Embed(kind="video", src="assets/clip.mp4")
+    assert embed.label() == "Video: clip.mp4"
+    deck = Deck(title="T", slides=[Slide(number=1, embeds=[embed])])
+    assert "[Video: clip.mp4](assets/clip.mp4)" in markdown.render(deck)
 
 
 def test_a_web_embed_links_to_its_src(tmp_path: pathlib.Path) -> None:

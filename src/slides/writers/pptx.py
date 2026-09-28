@@ -1,5 +1,6 @@
 import io
 import sys
+import shutil
 import pathlib
 import subprocess
 from dataclasses import dataclass
@@ -44,10 +45,13 @@ def write(
     presentation.slide_height = _emu(deck.height)
     palette = theme.extract(deck)
     styles = _styles(deck, palette)
+    rasterise = shutil.which(RASTERISER) is not None
+    if not rasterise:
+        _warn_svg_skipped(deck)
     layout = presentation.slide_layouts[TITLE_ONLY_LAYOUT]
     for slide in deck.slides:
         target = presentation.slides.add_slide(layout)
-        _slide(target, slide, deck, palette.background, styles)
+        _slide(target, slide, deck, palette.background, styles, rasterise)
     presentation.save(str(path))
 
 
@@ -76,12 +80,13 @@ def _slide(
     slide: Slide,
     deck: Deck,
     background: str,
-    styles: dict[str, TextStyle]
+    styles: dict[str, TextStyle],
+    rasterise: bool
 ) -> None:
     from pptx.enum.text import PP_ALIGN
     _paint(target, slide.background or background)
     for image in slide.images:
-        _image(target, image, slide.number, deck)
+        _image(target, image, slide.number, deck, rasterise)
     for embed in slide.embeds:
         _embed(target, embed, deck, styles["body"])
     heading = next((item for item in slide.items if item.role == "title"), None)
@@ -146,7 +151,10 @@ def _fill(
     style: TextStyle,
     align: "pptx.enum.text.PP_ALIGN"
 ) -> None:
+    from pptx.enum.text import MSO_AUTO_SIZE
     from pptx.util import Pt
+    # Shrink on overflow: DeckWerk sized its boxes for its own type sizes.
+    frame.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
     frame.text = text
     for paragraph in frame.paragraphs:
         paragraph.alignment = align
@@ -187,11 +195,14 @@ def _image(
     target: "pptx.slide.Slide",
     image: Image,
     number: int,
-    deck: Deck
+    deck: Deck,
+    rasterise: bool
 ) -> None:
     path = _resolve(deck, image.path)
     if path is None:
         sys.stderr.write("Slide %d: skipped image %s, not a file\n" % (number, image.path))
+        return
+    if _is_svg(path) and not rasterise:
         return
     _picture(target, path, _geometry(image) or _scaled(MEDIA_BOX, deck))
 
@@ -206,19 +217,12 @@ def _embed(
     box = _geometry(embed) or _scaled(MEDIA_BOX, deck)
     poster = _resolve(deck, embed.poster)
     if poster is None:
-        shape = _text_box(target, _label(embed), box, style, PP_ALIGN.CENTER)
+        shape = _text_box(target, embed.label(), box, style, PP_ALIGN.CENTER)
         shape.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
     else:
         shape = _picture(target, poster, box)
     url = (pathlib.Path(deck.source) / embed.src).resolve().as_uri()
     shape.click_action.hyperlink.address = url
-
-
-def _label(embed: Embed) -> str:
-    # Matches the Markdown writer's link text for the same embed.
-    name = embed.title or pathlib.PurePosixPath(embed.src).name
-    kind = "Interactive" if embed.kind == "web" else "Video"
-    return "%s: %s" % (kind, name)
 
 
 def _picture(
@@ -245,16 +249,30 @@ def _picture_source(
 ) -> str | io.BytesIO:
     # python-pptx embeds raster formats only: SVG is rasterised at twice its
     # box width, and WebP is re-encoded as PNG.
-    suffix = path.suffix.lower()
-    if suffix == ".svg":
+    if _is_svg(path):
         command = [RASTERISER, "--width", str(int(width * RASTER_SCALE)), str(path)]
         return io.BytesIO(subprocess.run(command, capture_output=True, check=True).stdout)
-    if suffix == ".webp":
+    if path.suffix.lower() == ".webp":
         import PIL.Image
         buffer = io.BytesIO()
         PIL.Image.open(path).save(buffer, format="PNG")
         return buffer
     return str(path)
+
+
+def _warn_svg_skipped(deck: Deck) -> None:
+    # Without the rasteriser SVG images are left out, not fatal: most
+    # machines have no librsvg.
+    paths = [_resolve(deck, image.path) for slide in deck.slides for image in slide.images]
+    count = sum(1 for path in paths if path is not None and _is_svg(path))
+    if count:
+        noun = "image" if count == 1 else "images"
+        fix = "install librsvg (brew install librsvg) for %s" % (RASTERISER,)
+        sys.stderr.write("%d SVG %s skipped: %s\n" % (count, noun, fix))
+
+
+def _is_svg(path: pathlib.Path) -> bool:
+    return path.suffix.lower() == ".svg"
 
 
 def _resolve(
