@@ -185,3 +185,154 @@ resolves symlinks on the Python side; `doc.file().toString()` may not resolve
 `/tmp` -> `/private/tmp` the same way, which would make the guard think the
 open document isn't the target and open (then close) a second copy instead of
 reusing the live one. Worth checking first if the live run surprises us.
+
+## Fix round 1: decide the already-open guard by document id, not by path
+
+The controller's review confirmed my own concern above (`/tmp` vs
+`/private/tmp`) and generalized it: any mismatch between
+`candidate.file().toString()` and the Python-resolved `sourcePath` — a
+symlinked home or Desktop, Unicode normalisation of an accented filename, a
+trailing slash — makes the loop miss the user's already-open document.
+`app.open(Path(sourcePath))` then hands back that same open document (Cocoa
+apps return the existing document for a file that's already open, they don't
+open a second copy), and the old script would close it with `saving: "no"`,
+discarding the user's unsaved edits: exactly the failure this whole task
+exists to prevent. Path comparison was the wrong primitive.
+
+### What changed
+
+`_GUARD` in `src/slides/keynote/export.py` no longer loops over
+`app.documents`, compares `.file()`, or wraps that access in a try/catch.
+Instead it captures document identity before opening:
+
+```javascript
+var before = app.documents.id();
+var doc = app.open(Path(sourcePath));
+var alreadyOpen = before.indexOf(doc.id()) !== -1;
+```
+
+`before` is the array of ids of every document open *before* the call — a
+snapshot of "what was already there." `app.open` then either returns the
+existing document (if `sourcePath` was already open) or a newly-opened one.
+Checking whether that returned document's id was already in `before`
+answers "was this already open?" by identity, which can't be fooled by any
+path representation issue. This also deletes the try/catch entirely: it was
+only needed because the path approach called `.file()` on documents that
+might have no backing file yet (a new, unsaved presentation) — the id
+approach never touches `.file()` at all.
+
+**Verifying `app.documents.id()` returns an array, without touching
+Keynote.** The sdef confirms `document.id` is `type="text" access="r"`
+(`scriptIdentifier`), same shape as before, but the sdef alone doesn't say
+whether asking a *collection* specifier for a property batches it into an
+array — that's a general JXA/Apple-Event-bridge behaviour, not something
+Keynote's own dictionary documents. I could not launch Keynote to check it
+directly (hard constraint), so I verified the general idiom against System
+Events instead, which is always running and is not the user's work:
+
+```
+$ osascript -l JavaScript -e '
+var se = Application("System Events");
+var ids = se.processes.id();
+JSON.stringify({ok: true, isArray: Array.isArray(ids), length: ids.length, sample: ids.slice(0,3)});
+'
+{"ok":true,"isArray":true,"length":156,"sample":[4097,32776,53261]}
+```
+
+This confirms that a JXA collection specifier's `.id()` (and `.name()`,
+tested the same way) returns an array of that property across all elements —
+a runtime-level behaviour of the ObjC scripting bridge, independent of which
+app's dictionary defines the property. It applies to `app.documents.id()` in
+Keynote the same way it applies to `se.processes.id()` in System Events.
+
+### Tests
+
+Replaced the two guard-shape tests with three, matching the controller's
+required assertions and asserting the path comparison is gone:
+
+- `test_already_open_guard_captures_ids_before_opening` — `"var before =
+  app.documents.id();"` appears in both templates, at a lower string index
+  than `"app.open(Path(sourcePath))"`, and both contain
+  `"alreadyOpen = before.indexOf(doc.id()) !== -1;"`.
+- `test_no_template_compares_document_file_paths` — neither template
+  contains `.file()` or `candidateFile`.
+- `test_close_is_conditional_on_the_already_open_guard` — unchanged from
+  round 1 (`if (!alreadyOpen) { ... doc.close(...) }` in both).
+
+RED (against the round-1 path-based guard):
+```
+$ PYTHONPATH=src python -m pytest tests/test_keynote_export.py -v
+FAILED test_already_open_guard_captures_ids_before_opening - ValueError: substring not found
+FAILED test_no_template_compares_document_file_paths - AssertionError: assert '.file()' not in ...
+2 failed, 5 passed
+```
+
+GREEN after rewriting `_GUARD`:
+```
+$ PYTHONPATH=src python -m pytest tests/test_keynote_export.py -v
+7 passed
+```
+
+Full suite (after `git merge --ff-only build-slides-cli`, which pulled in
+Task 14's fix round and Task 18's fix round as unrelated commits):
+```
+$ PYTHONPATH=src python -m pytest -q
+248 passed in 21.90s
+```
+
+`open_and_save` / `export_pdf` signatures were already one-parameter-per-line
+from round 1; no signature changes were needed this round.
+
+### Style check
+
+- No `try`/`except` (Python) introduced or remaining; the JS-side try/catch
+  from round 1 is gone along with the path loop it protected.
+- Double-quoted strings, C-style `%s` formatting, one-parameter-per-line
+  signatures unchanged in `export.py` and `convert.py`.
+
+### Concerns
+
+- None new. The id-array behaviour is verified against a real, always-on
+  scriptable app (System Events) rather than assumed from documentation, but
+  it is still inference from a different app's dictionary rather than a
+  direct Keynote observation — if Keynote's `documents` element somehow
+  special-cases batch property access (no evidence of this in the sdef, and
+  no other Keynote scripting suite in the file suggests it), the live check
+  below is where that would surface.
+
+### Updated live-check commands
+
+Do not run these yourself; they are for the controller to run against the
+real app, per the hard constraint. Commands 1 and 2 are unchanged from round
+1. Command 3 now specifically opens the target through a symlinked path
+(`/tmp` -> `/private/tmp` on macOS) so the check exercises exactly the case
+a path-based guard would have missed:
+
+```bash
+# Set once if the local app identifies itself as "Keynote Creator Studio":
+export SLIDES_KEYNOTE_APP="Keynote Creator Studio"
+
+# 1. Plain conversion, nothing else open.
+PYTHONPATH=src python -m slides.cli convert tests/fixtures/mini_deckwerk -f keynote -o /tmp/mini15.key
+open /tmp/mini15.key   # expect: opens, matches the DeckWerk fixture's slides
+
+# 2. PDF export straight from a .key.
+PYTHONPATH=src python -m slides.cli convert /tmp/mini15.key -f pdf -o /tmp/mini15.pdf
+open /tmp/mini15.pdf   # expect: a PDF with the same slide count
+
+# 3. THE GUARD — open the deck via its symlinked path (/tmp, not the
+#    resolved /private/tmp target) so the check covers exactly the case
+#    a path comparison would miss:
+open /tmp/mini15.key
+# ... in the Keynote window that opens, make a small unsaved edit (e.g. type
+# a character into a text box) so there is something to lose, and leave the
+# window open ...
+PYTHONPATH=src python -m slides.cli convert /tmp/mini15.key -f pdf -o /tmp/mini15-guarded.pdf
+# Expect: the command succeeds, a PDF appears at /tmp/mini15-guarded.pdf, AND
+# the already-open Keynote window for mini15.key is still open with the
+# unsaved edit still showing (unsaved-changes indicator still present,
+# window not closed, not reverted, no save dialog). If Keynote closes that
+# window, or the edit is gone, the id-based guard has failed and needs
+# another look — at that point the sdef can't tell us more; it would need
+# tracing the actual ids `before` and `doc.id()` resolve to in that session.
+```

@@ -1,29 +1,22 @@
 import pathlib
 from slides.keynote import jxa
 
-# Shared by both templates: find a document already open at `sourcePath` (so
-# the script never closes something the user had open); otherwise open it
-# fresh. `doc` and `alreadyOpen` are left in scope for the caller to finish.
+# Shared by both templates. Cocoa apps hand back the existing document when
+# you ask to open a file that is already open, so `app.open` alone can never
+# tell a fresh open from a reused one. Instead, capture the ids of every
+# document open *before* the call, then check whether the returned document's
+# id was already in that set: the document was already open exactly when it
+# was. This is identity, not a path comparison, so it can't be fooled by
+# /tmp vs /private/tmp, a symlinked home, or Unicode filename variants.
+# `doc` and `alreadyOpen` are left in scope for the caller to finish.
 _GUARD = """
 var app = Application(%s);
 app.includeStandardAdditions = true;
 var sourcePath = %s;
 var outPath = %s;
-var alreadyOpen = false;
-var doc = null;
-for (var i = 0; i < app.documents.length; i++) {
-  var candidate = app.documents[i];
-  var candidateFile = null;
-  try { candidateFile = candidate.file().toString(); } catch (e) {}
-  if (candidateFile === sourcePath) {
-    doc = candidate;
-    alreadyOpen = true;
-    break;
-  }
-}
-if (!doc) {
-  doc = app.open(Path(sourcePath));
-}
+var before = app.documents.id();
+var doc = app.open(Path(sourcePath));
+var alreadyOpen = before.indexOf(doc.id()) !== -1;
 """
 
 SCRIPT_SAVE = _GUARD + """app.export(doc, {to: Path(outPath), as: "Keynote 09"});
