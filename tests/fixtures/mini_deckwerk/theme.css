@@ -14,3 +14,7 @@
   color: #e7e7e6;
 }
 /* <<< end theme */
+
+@media print {
+  .slide { color: #f00; }
+}
