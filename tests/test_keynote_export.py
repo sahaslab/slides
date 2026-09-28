@@ -31,11 +31,20 @@ def test_paths_with_quotes_do_not_break_the_script(monkeypatch):
     assert "\\\"" in seen["script"]
 
 
-def test_already_open_guard_is_present_in_both_templates():
+def test_already_open_guard_captures_ids_before_opening():
     # JXA only; exercised for real by the controller's live-app check.
     for script in (export.SCRIPT_SAVE, export.SCRIPT_PDF):
-        assert "candidateFile === sourcePath" in script
-        assert "alreadyOpen = true" in script
+        before_at = script.index("var before = app.documents.id();")
+        open_at = script.index("app.open(Path(sourcePath))")
+        assert before_at < open_at
+        assert "alreadyOpen = before.indexOf(doc.id()) !== -1;" in script
+
+
+def test_no_template_compares_document_file_paths():
+    # The guard decides identity by document id, not by comparing paths.
+    for script in (export.SCRIPT_SAVE, export.SCRIPT_PDF):
+        assert ".file()" not in script
+        assert "candidateFile" not in script
 
 
 def test_close_is_conditional_on_the_already_open_guard():
