@@ -5,37 +5,16 @@ SCRIPT = """
 var app = Application(%s);
 if (app.documents.length === 0) { throw new Error("No presentation is open."); }
 var doc = app.documents[0];
-var out = {
-  name: doc.name(),
-  width: doc.width(),
-  height: doc.height(),
-  slides: []
-};
+// One Apple Event per property across every slide: per-item calls cost a
+// round trip each and made a 35-slide deck take eight seconds.
 var slides = doc.slides;
-for (var i = 0; i < slides.length; i++) {
-  var s = slides[i];
-  var items = [];
-  var texts = s.textItems;
-  for (var j = 0; j < texts.length; j++) { items.push(texts[j].objectText()); }
-  var tables = [];
-  var tbs = s.tables;
-  for (var t = 0; t < tbs.length; t++) {
-    var rows = [];
-    var rs = tbs[t].rows;
-    for (var r = 0; r < rs.length; r++) {
-      var cells = [];
-      var cs = rs[r].cells;
-      for (var c = 0; c < cs.length; c++) { cells.push(cs[c].value()); }
-      rows.push(cells);
-    }
-    tables.push(rows);
-  }
-  out.slides.push({
-    title: s.defaultTitleItem.objectText(),
-    items: items,
-    tables: tables,
-    notes: s.presenterNotes()
-  });
+var titles = slides.defaultTitleItem.objectText();
+var items = slides.textItems.objectText();
+var notes = slides.presenterNotes();
+var tables = slides.tables.rows.cells.value();
+var out = {name: doc.name(), width: doc.width(), height: doc.height(), slides: []};
+for (var i = 0; i < titles.length; i++) {
+  out.slides.push({title: titles[i], items: items[i], tables: tables[i], notes: notes[i]});
 }
 JSON.stringify(out);
 """

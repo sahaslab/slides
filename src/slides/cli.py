@@ -1,14 +1,25 @@
+import sys
+import signal
 import argparse
 import importlib
+from slides.deckwerk.importer import DeckWerkError
+from slides.keynote.jxa import KeynoteError
 
 
 def main():
+    signal.signal(signal.SIGPIPE, signal.SIG_DFL)
     parser = build_parser()
     args = parser.parse_args()
     if args.command is None:
         parser.print_help()
         return 2
-    return dispatch(args)
+    # The tool's own failures (no presentation open, not a deck, an output that
+    # already exists) are expected, so they read as one line, not a traceback.
+    try:
+        return dispatch(args)
+    except (DeckWerkError, KeynoteError, FileExistsError, FileNotFoundError, ValueError) as problem:
+        sys.stderr.write("slides: %s\n" % (problem,))
+        return 1
 
 
 def build_parser() -> argparse.ArgumentParser:
