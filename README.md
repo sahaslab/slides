@@ -139,3 +139,11 @@ always agree.
   font `slides theme` reports comes from the deck you hand it.
 - Render plots. `slides theme` hands over a palette; the caller draws.
 - Anything that needs to know what a deck is about.
+
+## Tests
+
+`pytest` runs the suite against the small fixtures in `tests/fixtures` in a few
+seconds. A handful of regression tests need real decks, because only a real
+file exercises the archive shapes that appear in the wild; point
+`SLIDES_SAMPLE_DECKS` at a folder of them to run those too. They skip
+otherwise.

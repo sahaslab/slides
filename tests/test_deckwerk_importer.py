@@ -3,6 +3,7 @@ import pathlib
 import tempfile
 import pytest
 from slides.deckwerk import importer
+from samples import SAMPLES
 
 REAL_ROOT = pathlib.Path(os.path.expanduser("~/src/deckwerk"))
 needs_deckwerk = pytest.mark.skipif(
@@ -70,10 +71,7 @@ def test_read_via_import_cleans_up_its_staging_dir_on_failure(monkeypatch):
 
 @needs_deckwerk
 def test_read_via_import_matches_the_fast_path():
-    key = pathlib.Path(os.path.expanduser(
-        "~/Desktop/Git/Class/introml/slides/drafts/early_term_2026/keynote"
-        "/09_oct14_tfidf_imbalance_eval.key"
-    ))
+    key = SAMPLES / "09_oct14_tfidf_imbalance_eval.key"
     if not key.exists():
         pytest.skip("no sample .key")
     from slides.readers.keynote_file import read
@@ -82,10 +80,7 @@ def test_read_via_import_matches_the_fast_path():
 
 @needs_deckwerk
 def test_report_runs_without_writing(tmp_path):
-    key = pathlib.Path(os.path.expanduser(
-        "~/Desktop/Git/Class/introml/slides/drafts/early_term_2026/keynote"
-        "/09_oct14_tfidf_imbalance_eval.key"
-    ))
+    key = SAMPLES / "09_oct14_tfidf_imbalance_eval.key"
     if not key.exists():
         pytest.skip("no sample .key")
     result = importer.report(key)

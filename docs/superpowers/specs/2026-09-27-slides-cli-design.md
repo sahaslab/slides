@@ -100,7 +100,7 @@ So `dump` handles each:
   and the slide gets a link to it. The pages are already self-contained by
   construction: DeckWerk stages them under `assets/web/` to run in an
   `<iframe sandbox>` with no access to the deck, so copying the file is
-  enough. A dump of a lecture deck therefore yields a folder of working demos
+  enough. A dump of a deck therefore yields a folder of working demos
   next to the Markdown, openable in any browser.
 - **`video`** — linked, not copied. Video files are large and already on disk;
   the link points at the source. `--copy-media` copies them too.

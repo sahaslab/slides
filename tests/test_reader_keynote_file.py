@@ -1,19 +1,13 @@
-import os
-import pathlib
 import zipfile
 import pytest
 from slides.color import to_oklch
 from slides.readers.keynote_file import _resolve_background, clean, read
+from samples import SAMPLES
 
-REAL = pathlib.Path(os.path.expanduser(
-    "~/Desktop/Git/Class/introml/slides/drafts/early_term_2026/keynote"
-    "/09_oct14_tfidf_imbalance_eval.key"
-))
+REAL = SAMPLES / "09_oct14_tfidf_imbalance_eval.key"
 needs_real = pytest.mark.skipif(not REAL.exists(), reason="no sample .key")
 
-REFERENCE = pathlib.Path(os.path.expanduser(
-    "~/Desktop/Git/Class/introml/slides/drafts/early_term_2026/keynote/REFERENCE.key"
-))
+REFERENCE = SAMPLES / "REFERENCE.key"
 needs_reference = pytest.mark.skipif(not REFERENCE.exists(), reason="no REFERENCE.key")
 
 

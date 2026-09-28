@@ -1,5 +1,4 @@
 import sys
-import os
 import shutil
 import subprocess
 import hashlib
@@ -11,11 +10,9 @@ from keynote_parser.codec import IWAFile
 from slides.keynote import math
 from slides.commands import math as math_command
 from slides.readers.keynote_file import archives, read
+from samples import SAMPLES
 
-REAL = pathlib.Path(os.path.expanduser(
-    "~/Desktop/Git/Class/introml/slides/drafts/early_term_2026/keynote"
-    "/09_oct14_tfidf_imbalance_eval.key"
-))
+REAL = SAMPLES / "09_oct14_tfidf_imbalance_eval.key"
 needs_real = pytest.mark.skipif(not REAL.exists(), reason="no sample .key")
 SOURCE_TEXT = "[TSWP.EquationInfoArchive.equation_source_text]"
 PROPERTIES = "[TSWP.EquationInfoArchive.equation_text_properties]"
