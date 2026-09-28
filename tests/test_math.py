@@ -151,6 +151,8 @@ def test_new_ids_start_above_every_identifier_in_use(tmp_path: pathlib.Path) -> 
     (tmp_path / "Tables").mkdir()
     (tmp_path / "Slide-1.iwa.yaml").write_text("- header:\n    identifier: '40'\n", encoding="utf-8")
     (tmp_path / "Tables" / "DataList-2.iwa.yaml").write_text("    identifier: '75'\n", encoding="utf-8")
+    # Deck 06's Metadata holds a UUID-shaped identifier that is not an object id.
+    (tmp_path / "Metadata.iwa.yaml").write_text("  identifier: 45335732-691B-4B8B-A714-13A7D1EEA0AC\n", encoding="utf-8")
     assert math.first_free_id(tmp_path, {"lastObjectIdentifier": "50"}) == 76
     assert math.first_free_id(tmp_path, {"lastObjectIdentifier": "90"}) == 91
 

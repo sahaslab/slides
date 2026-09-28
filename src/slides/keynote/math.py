@@ -32,7 +32,8 @@ DROPPED_INSIDE = (
 )
 # Range-based tables are not shifted; no deck we have seen uses them.
 RANGE_TABLES = ("tableOverlappingHighlight", "tablePencilAnnotation")
-IDENTIFIER = re.compile(r"\bidentifier: '?(\d+)'?")
+# Whole-line numeric identifiers only: Metadata also holds UUID-shaped ones.
+IDENTIFIER = re.compile(r"\bidentifier: '?(\d+)'?$", re.MULTILINE)
 
 
 def find_equations(text: str) -> list[tuple[int, int, str]]:
