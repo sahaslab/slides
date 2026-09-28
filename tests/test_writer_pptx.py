@@ -100,6 +100,35 @@ def test_body_text_takes_the_theme_foreground_on_a_dark_background(
     assert all(str(run.font.color.rgb) == palette.foreground.lstrip("#").upper() for run in runs)
 
 
+def test_every_run_clears_text_contrast_against_its_own_slide(tmp_path: pathlib.Path) -> None:
+    deck = Deck(
+        title="Mixed",
+        colors=[ColorUse(hex="#111111", weight=10.0, kind="text")],
+        slides=[
+            _two_item_slide(1, "#ffffff"),
+            _two_item_slide(2, "#ffffff"),
+            _two_item_slide(3, "#0d1e1c"),
+        ],
+    )
+    deck.slides[2].tables = [Table(rows=[["Model", "MSE"]])]
+    assert theme.extract(deck).background == "#ffffff"
+    out = tmp_path / "mixed.pptx"
+    write(deck, out)
+    checked = 0
+    for slide in pptx.Presentation(str(out)).slides:
+        ground = "#%s" % (slide.background.fill.fore_color.rgb,)
+        frames = [s.text_frame for s in slide.shapes if s.has_text_frame]
+        for shape in slide.shapes:
+            if shape.has_table:
+                frames += [cell.text_frame for row in shape.table.rows for cell in row.cells]
+        for frame in frames:
+            for paragraph in frame.paragraphs:
+                for run in paragraph.runs:
+                    assert color.contrast("#%s" % (run.font.color.rgb,), ground) >= 4.5
+                    checked += 1
+    assert checked == 8
+
+
 def test_title_takes_the_first_accent_only_when_it_clears_text_contrast(
     tmp_path: pathlib.Path
 ) -> None:
@@ -206,6 +235,30 @@ def test_without_rsvg_convert_svg_images_are_skipped_with_one_stderr_line(
     )
     back = read(out)
     assert [len(slide.images) for slide in back.slides] == [1, 0]
+
+
+def test_without_rsvg_convert_an_svg_poster_falls_back_to_a_linked_label(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture
+) -> None:
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    (tmp_path / "poster.svg").write_text(SVG)
+    (tmp_path / "figure.svg").write_text(SVG)
+    embed = Embed(kind="web", src="demo.html", title="Demo", poster="poster.svg", x=100, y=100, w=800, h=400)
+    deck = Deck(
+        title="Demos",
+        source=str(tmp_path),
+        slides=[Slide(number=1, images=[Image(path="figure.svg")], embeds=[embed])],
+    )
+    out = tmp_path / "out.pptx"
+    write(deck, out)
+    assert capsys.readouterr().err == (
+        "2 SVG images skipped: install librsvg (brew install librsvg) for rsvg-convert\n"
+    )
+    label = _shape_with_text(out, 0, "Interactive: Demo")
+    assert label.click_action.hyperlink.address == (tmp_path / "demo.html").resolve().as_uri()
+    assert read(out).slides[0].images == []
 
 
 def test_webp_images_are_re_encoded(tmp_path: pathlib.Path) -> None:
@@ -315,6 +368,21 @@ def _assert_one_image_fills_its_box(
     assert len(images) == 1
     assert images[0].w == pytest.approx(800.0)
     assert images[0].h == pytest.approx(400.0)
+
+
+def _two_item_slide(
+    number: int,
+    background: str
+) -> Slide:
+    return Slide(
+        number=number,
+        title="Title %d" % (number,),
+        items=[
+            TextItem(text="Title %d" % (number,), role="title", x=120, y=84, w=1680, h=67),
+            TextItem(text="Body %d" % (number,), x=120, y=300, w=800, h=60),
+        ],
+        background=background,
+    )
 
 
 def _fixture_copy(tmp_path: pathlib.Path) -> pathlib.Path:

@@ -298,3 +298,71 @@ Files changed this round:
 - `src/slides/writers/markdown.py`
 - `tests/test_writer_pptx.py`
 - this report
+
+## Fix round 2
+
+This round started from `git merge --ff-only build-slides-cli` (fast-forward to
+7c51416). convert.py was not touched.
+
+1. **Text colour per slide.**
+   - `theme.extract(deck)` still runs once per deck.
+   - `write` now paints each slide with `ground = slide.background or theme.background`
+     and resolves that slide's styles with `_styles(deck, palette, ground)`, cached
+     in a dict keyed by `ground`. So each distinct background is resolved once.
+   - Body, table and label text use
+     `color.with_contrast(theme.foreground, ground, theme.TEXT_CONTRAST)`. This
+     returns the foreground unchanged when it already clears 4.5:1. Otherwise it
+     searches lightness toward the pole that `color.contrast_extreme(ground)`
+     picks; that is the headroom rule, which `with_contrast` calls internally.
+   - Titles take `theme.accents[0]` when it clears 4.5:1 against `ground`, and the
+     resolved text colour otherwise.
+   - `_slide` paints the `ground` it is given.
+   - Test: `test_every_run_clears_text_contrast_against_its_own_slide`. It builds
+     two white slides and one `#0d1e1c` slide with a table, from a theme whose
+     majority background is white and whose foreground is `#111111`. It reads the
+     painted background of each slide back from the pptx and asserts all 8 runs
+     clear 4.5:1. Before the fix, the dark slide's text came out at 1.10:1.
+2. **SVG posters.**
+   - The rasterise check is now a small `SvgSupport(available, skipped)` object.
+     Its `allows(path)` returns False for an SVG when rsvg-convert is absent, and
+     counts it.
+   - `_image` and `_embed` both go through it.
+   - A poster that is not allowed falls back to the labelled text box, with the
+     same `file://` hyperlink as an embed that has no poster.
+   - Skipped posters are counted in the same single stderr line.
+   - Test: `test_without_rsvg_convert_an_svg_poster_falls_back_to_a_linked_label`
+     monkeypatches `shutil.which` to None, with one SVG image and one SVG poster.
+     It asserts the exact `2 SVG images skipped: ...` line, the "Interactive: Demo"
+     label whose hyperlink is the absolute URI of `demo.html`, and no pictures.
+   - Also run for real with `PATH=/usr/bin:/bin`, so `rsvg-convert` is actually
+     absent: a deck with an SVG poster wrote a pptx and exited 0 with
+     `1 SVG image skipped: ...`.
+3. **Skip count computed where the work happens.**
+   - `SvgSupport.allows` increments the count as each image or poster is refused.
+   - `write` prints the line after the slides are built.
+   - `_warn_svg_skipped` now only formats the message, and the second pass that
+     resolved every path again is gone.
+
+TDD:
+- **RED.** Both new tests failed. The mixed deck's slide-3 run was at 1.097:1. The
+  poster test got `1 SVG image skipped` instead of `2 SVG images skipped`, because
+  the poster went straight to the rasteriser.
+- **GREEN.** `PYTHONPATH=src python -m pytest -q` gives 249 passed (21 in
+  tests/test_writer_pptx.py).
+
+Real decks, re-converted into a `mktemp -d` dir:
+
+| Conversion | Slides | Runs | Weakest run contrast | Pictures | Links | Exit |
+| --- | --- | --- | --- | --- | --- | --- |
+| DeckWerk deck | 68 | 482 | 10.24:1 | 32 | 4 | 0 |
+| DeckWerk deck, `rsvg-convert` off PATH | 68 | 482 | 10.24:1 | 5 | 4 | 0 |
+| `.key` | 61 | 475 | 10.24:1 | 0 | 0 | 0 |
+
+The run without `rsvg-convert` also printed the `27 SVG images skipped: ...`
+line. The real deck's posters are PNG, which is why its 5 pictures include both
+of them.
+
+Files changed this round:
+- `src/slides/writers/pptx.py`
+- `tests/test_writer_pptx.py`
+- this report
