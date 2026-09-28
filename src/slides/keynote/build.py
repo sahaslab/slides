@@ -75,8 +75,14 @@ for (var n = 0; n < spec.slides.length; n++) {
     var t = want.texts[i];
     where = "slide " + (n + 1) + ", text " + (i + 1);
     slide.textItems.push(app.TextItem({objectText: t.text, position: {x: t.x, y: t.y}, width: t.w, height: t.h}));
-    var body = slide.textItems[i].objectText;
-    look(body, t.style);
+    var item = slide.textItems[i];
+    look(item.objectText, t.style);
+    // Keynote fits the box to its text from the top; DeckWerk may centre or
+    // bottom-align it in a taller box.
+    if (t.valign === "middle" || t.valign === "bottom") {
+      var spare = t.h - item.height();
+      if (spare > 0) { item.position = {x: t.x, y: t.y + (t.valign === "middle" ? spare / 2 : spare)}; }
+    }
   }
   for (var i = 0; i < want.tables.length; i++) {
     var tb = want.tables[i];
@@ -135,6 +141,18 @@ for (var i = 0; i < families.length; i++) {
 JSON.stringify(out);
 """
 
+METRICS_SCRIPT = """
+ObjC.import("AppKit");
+var names = %s;
+var out = {};
+for (var i = 0; i < names.length; i++) {
+  var font = $.NSFont.fontWithNameSize(names[i], 100);
+  out[names[i]] = font.isNil() ? null : (font.ascender - font.descender + font.leading) / 100;
+}
+JSON.stringify(out);
+"""
+PLAYABLE = (".mp4", ".mov", ".m4v")
+
 # CSS font-weight to AppKit's 0-15 weight scale.
 APPKIT_WEIGHT = {100: 2, 200: 3, 300: 4, 400: 5, 500: 6, 600: 8, 700: 9, 800: 10, 900: 11}
 ITALIC_TRAIT = 1
@@ -180,10 +198,12 @@ class Spec:
         self.baked = 0
 
     def build(self) -> dict:
+        slides = [self._slide(slide) for slide in self.deck.slides]
+        _line_spacing([t for s in slides for t in s["texts"]])
         return {
             "width": int(self.deck.width),
             "height": int(self.deck.height),
-            "slides": [self._slide(slide) for slide in self.deck.slides],
+            "slides": slides,
         }
 
     def _slide(self, slide: Slide) -> dict:
@@ -196,17 +216,27 @@ class Spec:
             texts.append(self._text(item, layout._geometry(item) or fallback, styles[role]))
         images = [box for box in (self._image(image) for image in slide.images) if box]
         for embed in slide.embeds:
+            movie = layout._resolve(self.deck, embed.src) if embed.kind == "video" else None
+            if movie is not None and movie.suffix.lower() in PLAYABLE:
+                # Keynote makes a movie from a video file handed over as an image.
+                x, y, w, h = layout._geometry(embed) or layout._scaled(layout.MEDIA_BOX, self.deck)
+                images.append({"path": str(movie.resolve()), "x": x, "y": y, "w": w, "h": h})
+                continue
             poster = self._image(Image(path=embed.poster, x=embed.x, y=embed.y, w=embed.w, h=embed.h))
             if poster:
                 images.append(poster)
             else:
                 box = layout._geometry(embed) or layout._scaled(layout.MEDIA_BOX, self.deck)
                 texts.append(self._text(TextItem(text=embed.label()), box, styles["body"]))
-        tables = [
-            self._table(table, offset, styles["table"], ground)
-            for offset, table in enumerate(slide.tables)
-            if table.rows
-        ]
+        tables = []
+        for offset, table in enumerate(slide.tables):
+            if not table.rows:
+                continue
+            if any("$" in str(cell) for row in table.rows for cell in row):
+                # Keynote tables cannot hold equations; a grid of text boxes can.
+                texts.extend(self._grid(table, offset, styles["table"]))
+            else:
+                tables.append(self._table(table, offset, styles["table"], ground))
         return {
             "background": ground,
             "texts": texts,
@@ -224,15 +254,19 @@ class Spec:
         fallback: "layout.TextStyle"
     ) -> dict:
         x, y, w, h = box
+        look = self._look(item.style, fallback)
         return {
             "text": item.text,
             "x": x,
             "y": y,
             "w": w,
             "h": h,
-            "style": self._look(item.style, fallback),
+            "style": look,
             "runs": [self._run(run, item.style) for run in item.runs],
             "align": item.style.get("text-align", "left"),
+            "valign": item.style.get("vertical-align", "top"),
+            "lineHeight": _line_height(item.style.get("line-height"), look["size"]),
+            "spaceAfter": _px(item.style.get("paragraph-spacing")) or 0.0,
         }
 
     def _look(
@@ -327,6 +361,32 @@ class Spec:
         canvas.save(path)
         return path
 
+    def _grid(
+        self,
+        table: Table,
+        offset: int,
+        fallback: "layout.TextStyle"
+    ) -> list[dict]:
+        rows = [[str(cell) for cell in row] for row in table.rows]
+        columns = max(len(row) for row in rows)
+        x = table.x if table.x is not None else self.deck.width * layout.MARGIN
+        y = table.y if table.y is not None else self.deck.height * (layout.TABLE_TOP + offset * layout.TABLE_STEP)
+        w = table.w if table.w is not None else self.deck.width * layout.TABLE_WIDTH
+        h = table.h if table.h is not None else len(rows) * fallback.size * layout.ROW_SCALE
+        cell_w, cell_h = w / columns, h / len(rows)
+        base = dict(table.style)
+        base.setdefault("text-align", "center")
+        base["vertical-align"] = "middle"
+        cells = []
+        for r, row in enumerate(rows):
+            style = dict(base, **({"font-weight": "700"} if r == 0 else {}))
+            for c, cell in enumerate(row):
+                if not cell.strip():
+                    continue
+                item = TextItem(text=cell, style=style)
+                cells.append(self._text(item, (x + c * cell_w, y + r * cell_h, cell_w, cell_h), fallback))
+        return cells
+
     def _table(
         self,
         table: Table,
@@ -386,6 +446,35 @@ class Faces:
             same = [m for m in members if bool(m[2] & ITALIC_TRAIT) == italic] or members
             return min(same, key=lambda m: (abs(m[1] - wanted), m[0]))[0]
         return "HelveticaNeue"
+
+
+def _line_height(
+    value: str | None,
+    size: float
+) -> float | None:
+    # CSS line-height as a multiple of the font size.
+    if not value:
+        return None
+    value = value.strip()
+    if value.endswith("px"):
+        return float(value[:-2]) / size
+    if value.endswith("%"):
+        return float(value[:-1]) / 100.0
+    return float(value) if re.fullmatch(r"[\d.]+", value) else None
+
+
+def _line_spacing(texts: list[dict]) -> None:
+    # Keynote spaces lines as a multiple of the face's own natural height, CSS
+    # as a multiple of the font size; convert with each face's metrics.
+    names = sorted(set(t["style"]["font"] for t in texts if t["lineHeight"]))
+    if not names:
+        return
+    script = METRICS_SCRIPT % (json.dumps(names),)
+    result = subprocess.run(["osascript", "-l", "JavaScript", "-e", script], capture_output=True, text=True, check=True)
+    natural = json.loads(result.stdout)
+    for text in texts:
+        ratio = natural.get(text["style"]["font"]) if text["lineHeight"] else None
+        text["lineSpacing"] = round(text["lineHeight"] / ratio, 3) if ratio else None
 
 
 def _stacks(deck: Deck) -> list[str]:

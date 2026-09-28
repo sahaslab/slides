@@ -87,24 +87,25 @@ class Finisher:
         ]
         for box, text in zip(boxes, want["texts"]):
             storage = by_id[box["objects"][0]["ownedStorage"]["identifier"]]
-            used += self._align(storage, ALIGNMENT.get(text["align"], ALIGNMENT["left"]))
+            used += self._paragraphs(storage, _paragraph_properties(text))
             used += self._runs(storage, text["runs"])
         external = entry.setdefault("externalReferences", [])
         known = set(e.get("objectIdentifier") for e in external)
         external.extend({"componentIdentifier": self.stylesheet_id, "objectIdentifier": i} for i in dict.fromkeys(used) if i not in known)
         math.dump(data, path)
 
-    def _align(
+    def _paragraphs(
         self,
         storage: dict,
-        alignment: str
+        props: dict
     ) -> list[str]:
         made = []
+        signature = tuple(sorted((k, str(v)) for k, v in props.items()))
         for entry in storage["objects"][0]["tableParaStyle"]["entries"]:
             parent = entry.get("object", {}).get("identifier")
             if parent is None:
                 continue
-            child = self._child(parent, {"paraProperties": {"alignment": alignment}}, ("align", parent, alignment))
+            child = self._child(parent, {"paraProperties": props}, ("paragraph", parent, signature))
             entry["object"] = {"identifier": child}
             _swap(storage, parent, child)
             made.append(child)
@@ -190,6 +191,15 @@ class Finisher:
         uuids.append({"identifier": ident, "uuid": {"lower": str(random.getrandbits(64)), "upper": str(random.getrandbits(64))}})
         self.cache[key] = ident
         return ident
+
+
+def _paragraph_properties(text: dict) -> dict:
+    props = {"alignment": ALIGNMENT.get(text.get("align", "left"), ALIGNMENT["left"])}
+    if text.get("lineSpacing"):
+        props["lineSpacing"] = {"amount": float(text["lineSpacing"])}
+    if text.get("spaceAfter"):
+        props["spaceAfter"] = float(text["spaceAfter"])
+    return props
 
 
 def _character_properties(style: dict) -> dict:

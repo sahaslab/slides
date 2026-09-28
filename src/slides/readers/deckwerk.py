@@ -19,7 +19,7 @@ KATEX_CLASS = "katex"
 KATEX_DISPLAY_CLASS = "katex-display"
 TEX_ANNOTATION_ENCODING = "application/x-tex"
 FONT_SIZE = re.compile(r"font-size:\s*([\d.]+)px")
-TEXT_PROPERTIES = ("color", "font-family", "font-size", "font-weight", "font-style", "text-align")
+TEXT_PROPERTIES = ("color", "font-family", "font-size", "font-weight", "font-style", "text-align", "line-height")
 EMPHASIS = {"b": {"font-weight": "700"}, "strong": {"font-weight": "700"}, "i": {"font-style": "italic"}, "em": {"font-style": "italic"}}
 
 
@@ -277,6 +277,13 @@ def _computed(
         if _applies(selector, classes):
             style.update({k: v for k, v in declarations.items() if k in TEXT_PROPERTIES})
     style.update({k: str(v) for k, v in (element.get("style") or {}).items() if k in TEXT_PROPERTIES})
+    # The box's own alignment is what DeckWerk lays the text out by.
+    if element.get("align"):
+        style["text-align"] = element["align"]
+    if element.get("valign"):
+        style["vertical-align"] = element["valign"]
+    if element.get("paragraphSpacing") is not None:
+        style["paragraph-spacing"] = "%spx" % (element["paragraphSpacing"],)
     return style
 
 
