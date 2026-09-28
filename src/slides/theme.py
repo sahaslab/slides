@@ -7,11 +7,12 @@ NEUTRAL_CHROMA = 0.04
 ACCENT_CHROMA = 0.05
 ACCENT_CONTRAST = 3.0
 TEXT_CONTRAST = 4.5
+FOREGROUND_SYNTH_CONTRAST = 7.0
 DUPLICATE = 0.06
 CHAIN_LIMIT = 2.0 * DUPLICATE
 GOLDEN_ANGLE = 137.5
 MAX_TURNS = 720
-PAD_CONTRAST_LADDER = (ACCENT_CONTRAST, 4.5, 6.5, 9.0, 13.0)
+PAD_RUNGS_PER_SIDE = 6
 
 
 @dataclass
@@ -86,14 +87,15 @@ def _foreground(
 ) -> str:
     text = [c for c in candidates if c.kind == "text"] or candidates
     if not text:
-        extreme = "#ffffff" if color.contrast_extreme(background) == 1.0 else "#000000"
-        return color.with_contrast(extreme, background, TEXT_CONTRAST)
+        return color.with_contrast("#ffffff", background, TEXT_CONTRAST)
     neutral = [c for c in text if _neutral(c.hex)]
     clearing = [c for c in neutral if color.contrast(c.hex, background) >= TEXT_CONTRAST]
     if clearing:
         return max(clearing, key=lambda c: (c.weight, c.hex)).hex
     best = max(text, key=lambda c: (c.weight, c.hex))
-    return color.with_contrast(best.hex, background, TEXT_CONTRAST)
+    if color.contrast(best.hex, background) >= TEXT_CONTRAST:
+        return best.hex
+    return color.with_contrast(best.hex, background, FOREGROUND_SYNTH_CONTRAST)
 
 
 def _muted(
@@ -107,10 +109,11 @@ def _muted(
         if c.kind == "text"
         and _neutral(c.hex)
         and 2.0 <= color.contrast(c.hex, background) < ceiling
+        and color.delta_e(c.hex, foreground) >= CHAIN_LIMIT
     ]
     if not band:
         return color.mix(foreground, background, 0.55)
-    return max(band, key=lambda c: (c.weight, c.hex)).hex
+    return max(band, key=lambda c: (c.weight, color.contrast(c.hex, background), c.hex)).hex
 
 
 def _grid(
@@ -118,9 +121,12 @@ def _grid(
     background: str,
     foreground: str,
 ) -> str:
+    fg_side = color.luminance(foreground) > color.luminance(background)
     band = [
         c for c in candidates
-        if _neutral(c.hex) and 1.1 <= color.contrast(c.hex, background) < 2.0
+        if _neutral(c.hex)
+        and 1.1 <= color.contrast(c.hex, background) < 2.0
+        and (color.luminance(c.hex) > color.luminance(background)) == fg_side
     ]
     if not band:
         return color.mix(foreground, background, 0.85)
@@ -153,15 +159,12 @@ def _absorb(
     clusters: list[list[str]],
     raised: str,
 ) -> None:
-    # Single-link clustering, hardened against chaining: a candidate joins a
-    # cluster if it is near ANY member of it (so a gradient family collapses
-    # to one entry) AND still within CHAIN_LIMIT of the cluster's own leader
-    # (its first, heaviest member), so a chain of near-duplicates cannot walk
-    # its way to a colour that no longer resembles where the cluster began.
-    # The brief's own dedup rule never grouped members at all: a rejected
-    # candidate was simply discarded, so its all(...) check was really
-    # comparing each candidate only against the leaders already kept, not
-    # against every member of a resemblance chain.
+    # Single-link clustering: a candidate joins a cluster if it is near ANY
+    # member of it, so a gradient family collapses to one entry instead of
+    # splitting wherever two adjacent steps happen to exceed DUPLICATE. Also
+    # bounded by CHAIN_LIMIT to the cluster's leader (its first, heaviest
+    # member), so a long chain can't drift arbitrarily far from where it
+    # started.
     for cluster in clusters:
         near_member = any(color.delta_e(raised, member) < DUPLICATE for member in cluster)
         near_leader = color.delta_e(raised, cluster[0]) < CHAIN_LIMIT
@@ -192,28 +195,44 @@ def _spread(
     return chosen
 
 
+def _pad_options(background: str) -> list[tuple[float, float]]:
+    # (ratio, target) pairs to try, scaled to what this background can
+    # actually reach in each direction: PAD_RUNGS_PER_SIDE lightness shells
+    # spanning ACCENT_CONTRAST up to that side's own ceiling (contrast
+    # against the pure extreme). A background where one side is capped
+    # close to ACCENT_CONTRAST (mid-greys such as #707070-#888888) still
+    # gets several usable shells instead of one; a mid-toned background
+    # where both sides clear the floor gets shells on both sides of it,
+    # doubling the room. A side below the floor contributes nothing, since
+    # every rung on it would just clamp to the same unreachable extreme.
+    options = []
+    for target in (1.0, 0.0):
+        ceiling = color.contrast("#ffffff" if target == 1.0 else "#000000", background)
+        if ceiling < ACCENT_CONTRAST:
+            continue
+        span = ceiling - ACCENT_CONTRAST
+        steps = PAD_RUNGS_PER_SIDE - 1
+        options.extend(
+            (ACCENT_CONTRAST + span * i / steps, target) for i in range(PAD_RUNGS_PER_SIDE)
+        )
+    return options
+
+
 def _pad(
     accents: list[str],
     background: str,
     foreground: str,
     count: int,
 ) -> list[str]:
-    # Derive the shortfall by rotating the deck's own hues, never from a
-    # palette shipped with the tool. Rotating by a fixed 360/count step can
-    # exhaust a single base after only count-1 distinct hues and then repeat
-    # exactly, losing a slot for good; the golden angle never lands back on
-    # a prior turn, so there is always a fresh candidate to try. Every
-    # colour kept so far (real or already padded) is also a rotation base,
-    # so the pool of candidates per turn grows as padding succeeds instead
-    # of being pinned to the handful of hues the deck actually used. A
-    # single fixed lightness (the minimum that clears ACCENT_CONTRAST) only
-    # has so much gamut-boundary arc to go around before it cannot fit one
-    # more mutually distinguishable colour; cycling the target ratio up the
-    # ladder pushes some candidates to a different lightness shell, which
-    # is a differently-shaped, usually roomier arc, without ever dropping
-    # below the contrast floor. At each turn every (base, ratio) pair is a
-    # candidate, and whichever maximises the minimum hue gap to everything
-    # already kept (and stays clear of the foreground) is taken.
+    # Derives the shortfall by rotating the deck's own hues by the golden
+    # angle, never from a palette shipped with the tool. Every colour kept
+    # so far, not just the deck's original hues, is also a rotation base,
+    # so the candidate pool grows as padding succeeds. Rungs are walked in
+    # order and the first one that yields a fresh candidate is taken: a
+    # single lightness only fits so many mutually distinguishable hues, so
+    # trying every rung and picking the best across all of them just adds
+    # near-duplicates that round to the same hex once several bases share
+    # a lightness.
     if not accents:
         seed = color.with_contrast(
             color.from_oklch(0.75, 0.15, 150.0),
@@ -222,32 +241,35 @@ def _pad(
         )
         accents = [seed]
     out = list(accents)
+    options = _pad_options(background)
     turn = 1
     while len(out) < count and turn <= MAX_TURNS:
         bases = [color.to_oklch(hex_) for hex_ in out]
-        rotated = [
-            color.with_contrast(
-                color.from_oklch(L, C, (H + GOLDEN_ANGLE * turn) % 360.0),
-                background,
-                ratio,
-            )
-            for L, C, H in bases
-            for ratio in PAD_CONTRAST_LADDER
-        ]
-        fresh = [
-            c for c in rotated
-            if all(color.delta_e(c, other) >= DUPLICATE for other in out)
-            and color.delta_e(c, foreground) >= DUPLICATE
-        ]
-        if fresh:
-            picked = max(
-                fresh,
-                key=lambda c: (
-                    min(_hue_gap(color.to_oklch(c)[2], color.to_oklch(o)[2]) for o in out),
-                    c,
-                ),
-            )
-            out.append(picked)
+        for ratio, target in options:
+            rotated = [
+                color.with_contrast_toward(
+                    color.from_oklch(L, C, (H + GOLDEN_ANGLE * turn) % 360.0),
+                    background,
+                    ratio,
+                    target,
+                )
+                for L, C, H in bases
+            ]
+            fresh = [
+                c for c in rotated
+                if all(color.delta_e(c, other) >= DUPLICATE for other in out)
+                and color.delta_e(c, foreground) >= DUPLICATE
+            ]
+            if fresh:
+                picked = max(
+                    fresh,
+                    key=lambda c: (
+                        min(_hue_gap(color.to_oklch(c)[2], color.to_oklch(o)[2]) for o in out),
+                        c,
+                    ),
+                )
+                out.append(picked)
+                break
         turn += 1
     return out[:count]
 

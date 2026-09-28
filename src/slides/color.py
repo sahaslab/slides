@@ -68,12 +68,12 @@ def contrast(
 
 
 def contrast_extreme(against: str) -> float:
-    # Which of pure white or pure black has more contrast headroom against
-    # a background: not always white just because the background is dark.
-    # Luminance and contrast are not symmetric around 0.5 (WCAG's "+0.05"
-    # offset skews the crossover to luminance about 0.179), so a background
-    # can be dark enough by the luminance<0.5 test yet still contrast better
-    # against black, e.g. #767676..#bcbcbc.
+    # Which of pure white (1.0) or pure black (0.0) has more contrast
+    # headroom against a background. Luminance and contrast are not
+    # symmetric around 0.5 (WCAG's +0.05 offset moves the crossover to
+    # luminance about 0.179), so a mid-grey like #767676..#bcbcbc can
+    # contrast better against black despite its own luminance being under
+    # 0.5.
     return 1.0 if contrast("#ffffff", against) >= contrast("#000000", against) else 0.0
 
 
@@ -99,19 +99,27 @@ def with_contrast(
     against: str,
     ratio: float,
 ) -> str:
-    # May reduce the result's chroma, at fixed lightness and hue, to keep it
-    # inside the sRGB gamut.
+    return with_contrast_toward(colour, against, ratio, contrast_extreme(against))
+
+
+def with_contrast_toward(
+    colour: str,
+    against: str,
+    ratio: float,
+    target: float,
+) -> str:
+    # Pushes colour's lightness toward target (1.0 white, 0.0 black) until
+    # it clears ratio against against, refitting chroma to the sRGB gamut
+    # at each step (clamping r/g/b independently would shift the hue by
+    # several degrees instead).
     if contrast(colour, against) >= ratio:
         return colour
     L, C, H = to_oklch(colour)
-    target = contrast_extreme(against)
     low, high = L, target
     best = from_oklch(target, _fit_chroma(target, C, H), H)
     # Binary search on lightness: contrast is monotone as L moves away from
     # the ground, so HALVINGS halvings land within a rounding step of the
-    # boundary. Chroma is refitted to the gamut at each step: clamping r/g/b
-    # independently (inside from_oklab) would otherwise shift the hue by
-    # several degrees.
+    # boundary.
     for _ in range(HALVINGS):
         middle = (low + high) / 2.0
         candidate = from_oklch(middle, _fit_chroma(middle, C, H), H)

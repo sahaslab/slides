@@ -3,7 +3,10 @@ from slides.model import ColorUse, Deck, Slide
 from slides.theme import NEUTRAL_CHROMA, DeckTheme, extract
 
 
-def a_deck(colors: list[ColorUse], background: str | None = "#0d1e1c") -> Deck:
+def a_deck(
+    colors: list[ColorUse],
+    background: str | None = "#0d1e1c",
+) -> Deck:
     return Deck(
         title="T",
         slides=[Slide(number=1, background=background)],
@@ -106,12 +109,15 @@ def test_a_deck_with_no_colours_still_yields_a_theme():
     assert color.contrast(theme.foreground, theme.background) >= 4.5
 
 
-def test_accent_below_the_floor_is_raised_with_hue_held():
-    deck = a_deck([ColorUse("#003c45", 30.0, "fill")])
+def test_accent_needing_the_gamut_clamp_holds_its_hue():
+    # #6500ff's chroma (0.294) is genuinely out of gamut at the lightness
+    # with_contrast must reach for 3:1 against #0d1e1c, so this exercises
+    # the chroma refit, not just the lightness search.
+    deck = a_deck([ColorUse("#6500ff", 30.0, "fill")])
     accents = extract(deck).accents
     raised = accents[0]
     assert color.contrast(raised, "#0d1e1c") >= 3.0
-    assert abs(color.to_oklch(raised)[2] - color.to_oklch("#003c45")[2]) < 5.0
+    assert abs(color.to_oklch(raised)[2] - color.to_oklch("#6500ff")[2]) < 1.0
 
 
 def test_mid_grey_background_reaches_contrast_floors():
@@ -131,11 +137,58 @@ def test_neutral_muted_and_grid_ignore_saturated_candidates():
         ColorUse("#f0a35e", 1.0, "text"),
         ColorUse("#79b8e8", 1.0, "text"),
         ColorUse("#2c403b", 3.0, "fill"),
-        ColorUse("#980c0c", 1.0, "text"),
+        ColorUse("#980c0c", 5.0, "text"),
     ])
     theme = extract(deck)
     assert theme.muted == "#93a69f"
     assert theme.grid == "#2c403b"
+
+
+def test_muted_ignores_a_neutral_fill_in_its_band():
+    deck = a_deck([
+        ColorUse("#edf4f1", 40.0, "text"),
+        ColorUse("#5a6b68", 30.0, "fill"),
+    ])
+    assert extract(deck).muted != "#5a6b68"
+
+
+def test_muted_does_not_nearly_duplicate_the_foreground():
+    deck = a_deck([
+        ColorUse("#edf4f1", 40.0, "text"),
+        ColorUse("#c7d0cd", 30.0, "text"),
+    ])
+    theme = extract(deck)
+    assert theme.muted != "#c7d0cd"
+    assert color.delta_e(theme.muted, theme.foreground) >= 2.0 * 0.06
+
+
+def test_grid_stays_on_the_same_side_as_the_foreground():
+    deck = a_deck([
+        ColorUse("#edf4f1", 40.0, "text"),
+        ColorUse("#000000", 30.0, "fill"),
+    ])
+    assert extract(deck).grid != "#000000"
+
+
+def test_muted_breaks_weight_ties_on_contrast_before_hex():
+    deck = a_deck(
+        [
+            ColorUse("#111827", 50.0, "text"),
+            ColorUse("#6b7280", 1.0, "text"),
+            ColorUse("#94a3b8", 1.0, "text"),
+        ],
+        background="#ffffff",
+    )
+    assert extract(deck).muted == "#6b7280"
+
+
+def test_synthesised_foreground_targets_seven_not_four_point_five():
+    needs_raise = a_deck([ColorUse("#9b7653", 40.0, "text")], background="#ffffff")
+    theme = extract(needs_raise)
+    assert color.contrast(theme.foreground, "#ffffff") >= 7.0
+
+    already_clears = a_deck([ColorUse("#cc0000", 40.0, "text")], background="#ffffff")
+    assert extract(already_clears).foreground == "#cc0000"
 
 
 def test_a_near_miss_neutral_beats_a_clearing_accent_colour():
@@ -168,3 +221,18 @@ def test_padding_never_runs_short():
             accents = extract(deck, accents=count).accents
             assert len(accents) == count
             assert len(set(accents)) == count
+
+
+def test_padding_never_runs_short_on_mid_tones():
+    # #707070-#888888 clear ACCENT_CONTRAST by only a hair in either
+    # direction; #2e8b57/#cc6633/#669966 are mid-toned, saturated
+    # backgrounds. All are the cases that used to come up short at N>=12.
+    backgrounds = ["#777777", "#2e8b57", "#cc6633", "#669966", "#3355aa"]
+    for background in backgrounds:
+        deck = a_deck([ColorUse("#a5d75f", 20.0, "fill")], background=background)
+        for count in (1, 6, 12, 16):
+            accents = extract(deck, accents=count).accents
+            assert len(accents) == count
+            assert len(set(accents)) == count
+            for accent in accents:
+                assert color.contrast(accent, background) >= 3.0
