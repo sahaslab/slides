@@ -36,6 +36,13 @@ def test_failure_raises_a_readable_error():
 
 
 @has_osascript
+def test_a_refused_apple_event_says_how_to_allow_it():
+    with pytest.raises(jxa.KeynoteError) as caught:
+        jxa.run("throw new Error('An error occurred. (-1743)')")
+    assert "Automation" in str(caught.value)
+
+
+@has_osascript
 def test_literal_round_trips_quotes_backslashes_and_newlines():
     value = "back\\slash \"quoted\"\nnewline"
     script = "JSON.stringify(%s)" % (jxa.literal(value),)
