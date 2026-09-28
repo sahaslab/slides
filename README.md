@@ -49,6 +49,25 @@ existing location, and copied too with `--copy-media`; `html` that is really a
 table renders as a pipe table. Dumping to stdout copies nothing — `dump` says
 so on stderr and links point back into the source deck instead.
 
+### `convert -f keynote` in more detail
+
+A DeckWerk deck is rebuilt by Keynote itself, so the file it saves is one it
+opens without complaint. Keynote must be installed; the build opens a copy of
+a blank deck at the output path, lays out every slide, saves and closes it,
+and touches no other document. Then a headless pass writes what Keynote's
+scripting cannot, and `slides math` turns `$...$` into native equations.
+
+What comes across: each text box's own font, weight, size, colour, alignment,
+line and paragraph spacing, and coloured or bold spans inside it; slide
+backgrounds; images with their crops, circle masks and fit; shapes (as vector
+art); videos as movies; tables (as text boxes when their cells hold math,
+which Keynote tables cannot); presenter notes; morphs as Magic Move; and every
+timeline step as a Keynote build (appear plays as Dissolve). A 68-slide deck
+takes about a minute.
+
+A `.pptx` source is opened by Keynote directly. `-f pdf` builds the Keynote
+deck first, then exports it.
+
 ### `math` in more detail
 
 The output defaults to `<name>-math.key` beside the source, and `-o` names
@@ -140,9 +159,8 @@ always agree.
 
 - Live JXA LaTeX conversion (Find → Cut → ⌥⌘E). It steals focus and is slow;
   `slides math` covers the cases that matter headlessly.
-- Write `.key` files directly with keynote-parser. Brittle across Keynote
-  versions — the pptx round trip covers a DeckWerk or PowerPoint deck going
-  to Keynote instead.
+- Web demos inside Keynote. An interactive page comes across as its poster,
+  since Keynote cannot host one; `slides dump` keeps a working link to it.
 - Ship any built-in palette, theme, template or house style. Every colour and
   font `slides theme` reports comes from the deck you hand it.
 - Render plots. `slides theme` hands over a palette; the caller draws.
