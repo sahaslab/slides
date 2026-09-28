@@ -61,18 +61,14 @@ def _to_keynote(
     source: pathlib.Path,
     kind: str
 ) -> int:
-    from slides.keynote import export
+    from slides.keynote import build, export
     out = pathlib.Path(args.output) if args.output else source.with_suffix(".key")
     if taken(out):
         return 1
     if kind == "pptx":
         export.open_and_save(source, out)
     else:
-        from slides.writers import pptx as writer
-        with tempfile.TemporaryDirectory(prefix="slides-key-") as staging_dir:
-            staging = pathlib.Path(staging_dir) / "deck.pptx"
-            writer.write(readers.read(source), staging)
-            export.open_and_save(staging, out)
+        build.build(readers.read(source), out)
         sys.stderr.write("Builds and transitions do not survive this route\n")
     sys.stdout.write("%s\n" % (out,))
     return 0
@@ -83,16 +79,15 @@ def _to_pdf(
     source: pathlib.Path,
     kind: str
 ) -> int:
-    from slides.keynote import export
+    from slides.keynote import build, export
     out = pathlib.Path(args.output) if args.output else source.with_suffix(".pdf")
     if taken(out):
         return 1
     if kind == "deckwerk":
-        from slides.writers import pptx as writer
-        with tempfile.TemporaryDirectory(prefix="slides-pdf-") as staging_dir:
-            staging = pathlib.Path(staging_dir) / "deck.pptx"
-            writer.write(readers.read(source), staging)
-            export.export_pdf(staging, out)
+        with tempfile.TemporaryDirectory(prefix="slides-pdf-") as staging:
+            deck = pathlib.Path(staging) / "deck.key"
+            build.build(readers.read(source), deck)
+            export.export_pdf(deck, out)
     else:
         export.export_pdf(source, out)
     sys.stdout.write("%s\n" % (out,))

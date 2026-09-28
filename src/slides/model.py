@@ -3,6 +3,15 @@ from dataclasses import dataclass, field
 
 
 @dataclass
+class Run:
+    # A span of an item's text whose look differs from the item's own: CSS
+    # properties such as color or font-weight, over characters start..end.
+    start: int
+    end: int
+    style: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
 class TextItem:
     text: str
     role: str = "body"
@@ -10,12 +19,20 @@ class TextItem:
     y: float | None = None
     w: float | None = None
     h: float | None = None
-    color: str | None = None
+    style: dict[str, str] = field(default_factory=dict)
+    runs: list[Run] = field(default_factory=list)
+    id: str | None = None
 
 
 @dataclass
 class Table:
     rows: list[list[str]] = field(default_factory=list)
+    x: float | None = None
+    y: float | None = None
+    w: float | None = None
+    h: float | None = None
+    style: dict[str, str] = field(default_factory=dict)
+    id: str | None = None
 
 
 @dataclass
@@ -25,6 +42,11 @@ class Image:
     y: float | None = None
     w: float | None = None
     h: float | None = None
+    fit: str = "contain"
+    mask: str | None = None
+    radius: float = 0.0
+    crop: tuple[float, float, float, float] | None = None
+    id: str | None = None
 
 
 @dataclass
@@ -37,6 +59,7 @@ class Embed:
     y: float | None = None
     w: float | None = None
     h: float | None = None
+    id: str | None = None
 
     def label(self) -> str:
         name = self.title or pathlib.PurePosixPath(self.src).name
@@ -52,6 +75,16 @@ class ColorUse:
 
 
 @dataclass
+class Build:
+    # One step of a slide's animation: what appears or goes, and what starts it
+    # ("click", "afterPrev" or "withPrev"), after delay seconds.
+    target: str
+    effect: str
+    trigger: str = "click"
+    delay: float = 0.0
+
+
+@dataclass
 class Slide:
     number: int
     title: str | None = None
@@ -61,6 +94,9 @@ class Slide:
     embeds: list[Embed] = field(default_factory=list)
     notes: str = ""
     background: str | None = None
+    transition: str | None = None
+    transition_duration: float = 1.0
+    builds: list[Build] = field(default_factory=list)
 
     def body_items(self) -> list[TextItem]:
         seen: set[str] = set()

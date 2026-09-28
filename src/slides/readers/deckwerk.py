@@ -2,7 +2,7 @@ import re
 import json
 import pathlib
 from html.parser import HTMLParser
-from slides.model import ColorUse, Deck, Embed, Image, Slide, Table, TextItem
+from slides.model import Build, Run, ColorUse, Deck, Embed, Image, Slide, Table, TextItem
 
 BREAK_TAGS = {"br", "p", "div", "li", "tr"}
 RGB = re.compile(r"rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)")
@@ -19,6 +19,8 @@ KATEX_CLASS = "katex"
 KATEX_DISPLAY_CLASS = "katex-display"
 TEX_ANNOTATION_ENCODING = "application/x-tex"
 FONT_SIZE = re.compile(r"font-size:\s*([\d.]+)px")
+TEXT_PROPERTIES = ("color", "font-family", "font-size", "font-weight", "font-style", "text-align")
+EMPHASIS = {"b": {"font-weight": "700"}, "strong": {"font-weight": "700"}, "i": {"font-style": "italic"}, "em": {"font-style": "italic"}}
 
 
 def _classes(attrs: list) -> set[str]:
@@ -107,10 +109,27 @@ class _KatexAware:
 
 
 class _Stripper(HTMLParser, _KatexAware):
+    # Collects the text, and beside each piece the inline style in force
+    # there, so a coloured or bold span survives as a Run.
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
+        self.styles: list[dict[str, str]] = []
+        self._open: list[tuple[str, dict[str, str]]] = []
         self._katex_init()
+
+    def _style(self) -> dict[str, str]:
+        merged: dict[str, str] = {}
+        for _, style in self._open:
+            merged.update(style)
+        return merged
+
+    def _add(
+        self,
+        text: str
+    ) -> None:
+        self.parts.append(text)
+        self.styles.append(self._style())
 
     def handle_data(
         self,
@@ -118,7 +137,7 @@ class _Stripper(HTMLParser, _KatexAware):
     ) -> None:
         if self._katex_data(data):
             return
-        self.parts.append(data)
+        self._add(data)
 
     def handle_starttag(
         self,
@@ -128,7 +147,11 @@ class _Stripper(HTMLParser, _KatexAware):
         if self._katex_starttag(tag, attrs):
             return
         if tag in BREAK_TAGS and self.parts:
-            self.parts.append("\n")
+            self._add("\n")
+        style = dict(EMPHASIS.get(tag, {}))
+        style.update(_inline_style(_attr_value(attrs, "style") or ""))
+        if tag not in ("br", "img", "hr"):
+            self._open.append((tag, style))
 
     def handle_endtag(
         self,
@@ -136,12 +159,16 @@ class _Stripper(HTMLParser, _KatexAware):
     ) -> None:
         wrapped = self._katex_endtag(tag)
         if wrapped is not None:
-            self.parts.append(wrapped)
+            self._add(wrapped)
             return
         if self._katex_depth:
             return
+        for index in range(len(self._open) - 1, -1, -1):
+            if self._open[index][0] == tag:
+                del self._open[index:]
+                break
         if tag in BREAK_TAGS and self.parts:
-            self.parts.append("\n")
+            self._add("\n")
 
 
 class _TableParser(HTMLParser, _KatexAware):
@@ -192,11 +219,82 @@ class _TableParser(HTMLParser, _KatexAware):
 
 
 def strip_html(markup: str) -> str:
+    return rich_text(markup)[0]
+
+
+def rich_text(markup: str) -> tuple[str, list[Run]]:
+    # The text as strip_html has always produced it, plus the spans whose
+    # inline style differs; both come from one per-character pass so the
+    # spans' offsets survive the whitespace clean-up.
     stripper = _Stripper()
     stripper.feed(markup)
-    text = "".join(stripper.parts)
-    text = re.sub(r"\n{2,}", "\n", text)
-    return text.strip()
+    chars: list[str] = []
+    styles: list[dict[str, str]] = []
+    for part, style in zip(stripper.parts, stripper.styles):
+        for char in part:
+            if char == "\n" and chars and chars[-1] == "\n":
+                continue
+            chars.append(char)
+            styles.append(style)
+    start = 0
+    while start < len(chars) and chars[start].isspace():
+        start += 1
+    end = len(chars)
+    while end > start and chars[end - 1].isspace():
+        end -= 1
+    chars, styles = chars[start:end], styles[start:end]
+    runs: list[Run] = []
+    for index, style in enumerate(styles):
+        if not style:
+            continue
+        if runs and runs[-1].end == index and runs[-1].style == style:
+            runs[-1].end = index + 1
+        else:
+            runs.append(Run(start=index, end=index + 1, style=style))
+    return "".join(chars), runs
+
+
+def _inline_style(declarations: str) -> dict[str, str]:
+    found = {}
+    for prop, value in CSS_DECLARATION.findall(declarations):
+        prop = prop.strip().lower()
+        if prop in TEXT_PROPERTIES:
+            found[prop] = value.strip()
+    return found
+
+
+def _computed(
+    element: dict,
+    rules: dict[str, dict[str, str]]
+) -> dict[str, str]:
+    # The element's own look: the root rule every slide inherits, then the
+    # theme rules whose rightmost selector names only classes it carries, then
+    # its own style. A simplification of the CSS cascade that fits how
+    # DeckWerk themes are written.
+    classes = set(element.get("class") or [])
+    style: dict[str, str] = {}
+    for selector, declarations in rules.items():
+        if _applies(selector, classes):
+            style.update({k: v for k, v in declarations.items() if k in TEXT_PROPERTIES})
+    style.update({k: str(v) for k, v in (element.get("style") or {}).items() if k in TEXT_PROPERTIES})
+    return style
+
+
+def _applies(
+    selector: str,
+    classes: set[str]
+) -> bool:
+    for part in selector.split(","):
+        words = part.split()
+        if not words:
+            continue
+        last = words[-1]
+        if last == ROOT_SELECTOR:
+            return True
+        names = re.findall(r"\.([\w-]+)", last)
+        if last.startswith(".") and names and not re.search(r"[:\[#>+~*]", last) and set(names) <= classes:
+            return True
+    return False
 
 
 def read(path: str | pathlib.Path) -> Deck:
@@ -212,9 +310,10 @@ def read(path: str | pathlib.Path) -> Deck:
         fonts=_fonts(data),
     )
     colors: dict[tuple[str, str], float] = {}
+    rules = _theme_rules(root, data)
     for number, raw in enumerate(data.get("slides", []), start=1):
-        deck.slides.append(_slide(number, raw, colors))
-    _harvest_theme_colors(colors, _theme_rules(root, data), deck.slides)
+        deck.slides.append(_slide(number, raw, colors, rules))
+    _harvest_theme_colors(colors, rules, deck.slides)
     deck.colors = [
         ColorUse(hex=key[0], weight=weight, kind=key[1])
         for key, weight in sorted(colors.items(), key=lambda kv: -kv[1])
@@ -234,7 +333,8 @@ def _fonts(data: dict) -> dict[str, str]:
 def _slide(
     number: int,
     raw: dict,
-    colors: dict
+    colors: dict,
+    rules: dict[str, dict[str, str]]
 ) -> Slide:
     background = _background(raw)
     if background:
@@ -243,6 +343,9 @@ def _slide(
         number=number,
         notes=raw.get("notes") or "",
         background=background,
+        transition="magic move" if raw.get("morphFromPrevious") else None,
+        transition_duration=float(raw.get("morphDuration") or 1000) / 1000.0,
+        builds=[_build(step) for step in raw.get("timeline") or []],
     )
     elements = sorted(
         raw.get("elements", []),
@@ -257,7 +360,7 @@ def _slide(
             markup = element.get("html") or ""
             if SLIDE_NUMBER_MARKER in markup:
                 continue
-            text = strip_html(markup)
+            text, runs = rich_text(markup)
             if not text:
                 continue
             for value in _colors_in(markup):
@@ -268,6 +371,9 @@ def _slide(
                 y=element.get("y"),
                 w=element.get("w"),
                 h=element.get("h"),
+                style=_computed(element, rules),
+                runs=runs,
+                id=element.get("id"),
             )
             slide.items.append(item)
             if title_item is None and _is_title(element):
@@ -277,12 +383,18 @@ def _slide(
                 largest_size = size
                 largest_item = item
         elif kind == "image":
+            box = element.get("sourceBox")
             slide.images.append(Image(
                 path=element.get("src"),
                 x=element.get("x"),
                 y=element.get("y"),
                 w=element.get("w"),
                 h=element.get("h"),
+                fit=element.get("fit") or "contain",
+                mask=element.get("maskShape") if element.get("maskShape") == "circle" else None,
+                radius=float(element.get("borderRadius") or 0.0),
+                crop=(box["x"], box["y"], box["w"], box["h"]) if box else None,
+                id=element.get("id"),
             ))
         elif kind == "table":
             slide.tables.append(Table(rows=element.get("rows", [])))
@@ -301,12 +413,21 @@ def _slide(
                 y=_number(element.get("y")),
                 w=_number(element.get("w")),
                 h=_number(element.get("h")),
+                id=element.get("id"),
             ))
         elif kind == "html":
             markup = element.get("html") or ""
             rows = _html_table(markup)
             if rows:
-                slide.tables.append(Table(rows=rows))
+                slide.tables.append(Table(
+                    rows=rows,
+                    x=_number(element.get("x")),
+                    y=_number(element.get("y")),
+                    w=_number(element.get("w")),
+                    h=_number(element.get("h")),
+                    style=_computed(element, rules),
+                    id=element.get("id"),
+                ))
             elif SLIDE_NUMBER_MARKER not in markup:
                 text = strip_html(markup)
                 if text:
@@ -326,6 +447,17 @@ def _slide(
         slide.title = chosen.text
         chosen.role = "title"
     return slide
+
+
+def _build(step: dict) -> Build:
+    trigger = step.get("trigger") or {}
+    action = step.get("action") or {}
+    return Build(
+        target=action.get("target") or "",
+        effect=action.get("type") or "appear",
+        trigger=trigger.get("on") or "click",
+        delay=float(trigger.get("delay") or 0) / 1000.0,
+    )
 
 
 def _is_title(element: dict) -> bool:
