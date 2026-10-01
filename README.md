@@ -1,42 +1,81 @@
-# slides
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+    <img src="assets/logo.svg" alt="slides" width="420">
+  </picture>
+</h1>
 
-A command-line tool and Python library for working with slide decks. It reads Keynote, PowerPoint and DeckWerk decks into one shared model, converts between them, and dumps any deck to text. It can also build a DeckWerk deck as a native Keynote deck, with its fonts, images, shapes, equations, movies and builds intact.
+<p align="center">
+  <code>slides</code> reads, converts and dumps Keynote, PowerPoint and DeckWerk decks, from the command line or from Python.
+</p>
 
-## Setup
+<p align="center">
+  <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-333333?logo=python&logoColor=white">
+  <img alt="Platform macOS" src="https://img.shields.io/badge/platform-macOS-333333?logo=apple&logoColor=white">
+  <img alt="Install with uv" src="https://img.shields.io/badge/install_with-uv-333333?logo=uv&logoColor=white">
+</p>
+
+It reads all three formats into the same Python objects, so every command works the same way on each. You can use it to turn a deck into Markdown that an agent can read, to rebuild a DeckWerk deck as a native Keynote deck, or to give your plots a deck's colours and fonts. [DeckWerk](https://deckwerk.org) is a slide editor that saves each deck as a folder with a `deck.json` file in it.
+
+## Install
 
 ```bash
 uv tool install git+https://github.com/sahaslab/slides
 ```
 
-This puts a `slides` command on your path. Anything that drives Keynote needs macOS with Keynote installed. The first time, macOS asks whether your terminal may control Keynote; if a command fails with `-1743`, allow it under System Settings > Privacy & Security > Automation.
+The command installs `slides` in its own environment and puts it on your path. The commands that use Keynote also need macOS with Keynote installed, and they need your permission the first time (see [Keynote permissions](#keynote-permissions)).
 
-## Usage
+## Common tasks
 
-A target is a `.key` file, a `.pptx` file, or a DeckWerk folder (any directory with a `deck.json`).
+### Read a deck as text
 
-* **dump**: A deck as Markdown, JSON or plain text, e.g. for an agent to read. With no target, it reads the front document in Keynote. `slides dump talk.key -o talk.md`
-* **convert**: A deck in another format: `keynote`, `pdf`, `pptx` or `deckwerk`. `slides convert talk/ -f keynote`
-* **math**: Turns `$...$` and `$$...$$` LaTeX in a `.key` file into native Keynote equations. `slides math talk.key`
-* **theme**: A deck's colours and fonts, as JSON or as a matplotlib, ggplot or CSS theme for figures that match it. `slides theme talk.key -f matplotlib > talk.mplstyle`
-* **info**: Slide count, size and assets. `slides info talk.key`
-* **patch**: Writes titles, body text, notes, images and tables into the open Keynote deck from a JSON spec keyed by slide number. `slides patch spec.json`
-* **scaffold**: Like `patch`, but makes a new slide per entry, optionally in a copy of a template. `slides scaffold spec.json --template blank.key -o talk.key`
+```bash
+slides dump talk.key -o talk.md
+```
 
-Run `slides <command> --help` for the rest of each command's options. No command overwrites an existing file or changes its source; only `patch` and `scaffold` edit a deck that is open in Keynote.
+`dump` writes each slide's title, text, tables and presenter notes as Markdown. You can ask for JSON or plain text with `-f json` or `-f txt`, and you can keep only the presenter notes with `--notes-only`. If you leave out the file, `dump` reads the deck that's open in Keynote.
 
-### DeckWerk to Keynote
+### Turn a DeckWerk deck into a Keynote deck
 
-`slides convert talk/ -f keynote` has Keynote build the deck itself, so the result opens cleanly and edits like any other Keynote deck. Text keeps its fonts, weights, colours, alignment, spacing and inline styling. Images keep their crops and masks, shapes come across as vector art, videos as movies, math as native equations, morphs as Magic Move, and timeline steps as ordinary builds. A table with math in it becomes a grid of text boxes, since Keynote tables cannot hold equations. Interactive web demos come across as their poster image. A 68-slide deck takes about a minute.
+```bash
+slides convert talk/ -f keynote
+```
 
-Converting a deck *to* DeckWerk, and `dump --via-deckwerk`, use DeckWerk's own importer, so they need a DeckWerk checkout. Point `SLIDES_DECKWERK_ROOT` (or `--deckwerk-root`) at it; it defaults to `~/src/deckwerk`.
+Keynote builds the deck itself, so you can open and edit the result like any other Keynote deck. The text keeps its fonts, colours, alignment and spacing, and the images keep their crops and masks. Shapes, videos, equations, builds and Magic Move transitions come across too. Use `-f pdf` to get a PDF instead. A 68-slide deck takes about a minute to convert.
 
-## Library
+### Match your plots to a deck
 
-To use it as a library, install it into your environment instead. The `figures` extra adds matplotlib, which `deck_style` needs.
+```bash
+slides theme talk.key -f matplotlib > talk.mplstyle
+```
+
+`theme` finds the deck's background, text and accent colours, along with its fonts. It can write them as a matplotlib style sheet, a ggplot theme for R, CSS variables or JSON.
+
+## Commands
+
+The commands that read a deck take a Keynote file, a PowerPoint file or a DeckWerk folder, and they work out which one you gave them from the path.
+
+| Command | What it does |
+| --- | --- |
+| `slides dump` | Writes a deck as Markdown, JSON or plain text. |
+| `slides convert` | Converts a deck to Keynote, PDF, PowerPoint or DeckWerk. |
+| `slides math` | Turns `$...$` LaTeX in a Keynote file into native Keynote equations. |
+| `slides theme` | Writes a deck's colours and fonts as a theme for plots or web pages. |
+| `slides info` | Lists a deck's slide count, size and assets. |
+| `slides patch` | Writes titles, text, notes, images and tables into the open Keynote deck from a JSON file. |
+| `slides scaffold` | Adds slides to a Keynote deck from a JSON file, optionally in a copy of a template. |
+
+Run `slides <command> --help` to see each command's options. No command overwrites an existing file or changes the deck you give it, and only `patch` and `scaffold` change a deck that's open in Keynote.
+
+## Use it from Python
+
+Install `slides` into your own environment to import it. The `figures` extra adds matplotlib.
 
 ```bash
 uv pip install "slides[figures] @ git+https://github.com/sahaslab/slides"
 ```
+
+`read_deck` takes the same paths as the command line, and it returns a `Deck` object that holds the deck's slides, text, images and notes.
 
 ```python
 from slides import read_deck
@@ -46,15 +85,29 @@ deck = read_deck("talk.key")
 print(markdown.render(deck, notes_only=True))
 ```
 
+To style matplotlib figures with a deck's theme, pass the theme to `deck_style`.
+
 ```python
 import matplotlib.pyplot as plt
 from slides import read_deck
 from slides.theme import extract
 from slides.emit.matplotlib import deck_style
 
-with deck_style(extract(read_deck("talk/"))):
+with deck_style(extract(read_deck("talk.key"))):
     fig, ax = plt.subplots()
 ```
+
+## Requirements
+
+### Keynote permissions
+
+`slides` controls Keynote through Apple's scripting system, so macOS asks once whether your terminal app may control Keynote. If a command fails with error `-1743`, you either declined or macOS never asked. To fix it, open System Settings and go to Privacy & Security, then Automation. Find your terminal app in the list, and turn on Keynote under it. If your terminal app isn't in the list, the error message prints a `tccutil` command that makes macOS ask again.
+
+The commands that use Keynote are `convert` to Keynote or PDF, `patch`, `scaffold`, and `dump` with no file.
+
+### DeckWerk
+
+Converting a deck to DeckWerk uses DeckWerk's own importer, so it needs a copy of the DeckWerk repository. `dump --via-deckwerk` uses the same importer. Set `SLIDES_DECKWERK_ROOT` to its folder, or pass `--deckwerk-root`. By default, `slides` looks in `~/src/deckwerk`.
 
 ## Development
 
@@ -67,4 +120,4 @@ uv pip install -e . pytest
 pytest
 ```
 
-The tests run against the small decks in `tests/fixtures` and never drive Keynote. A few more need real decks; point `SLIDES_SAMPLE_DECKS` at a folder of them to run those too.
+The tests use the small decks in `tests/fixtures`, and they never open Keynote. A few more tests need real decks, so they run only when you set `SLIDES_SAMPLE_DECKS` to a folder of them.
